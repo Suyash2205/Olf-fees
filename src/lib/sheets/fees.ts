@@ -151,6 +151,90 @@ export async function getPendingFees(): Promise<PendingFeeSummary[]> {
     .sort((a, b) => b.balance - a.balance);
 }
 
+// Month (1-12) → 0-based column index in the sheet
+const MONTH_TO_COL: Record<number, number> = {
+  6: 8,  7: 9,  8: 10,  // Q1: Jun=I, Jul=J, Aug=K
+  9: 12, 10: 13, 11: 14, // Q2: Sep=M, Oct=N, Nov=O
+  12: 16, 1: 17, 2: 18,  // Q3: Dec=Q, Jan=R, Feb=S
+  3: 20,  4: 21, 5: 22,  // Q4: Mar=U, Apr=V, May=W
+};
+
+// Month → quarter number (1-4)
+const MONTH_TO_QUARTER: Record<number, 1 | 2 | 3 | 4> = {
+  6: 1, 7: 1, 8: 1,
+  9: 2, 10: 2, 11: 2,
+  12: 3, 1: 3, 2: 3,
+  3: 4, 4: 4, 5: 4,
+};
+
+// Quarter → first month's column index for overflow
+const QUARTER_OVERFLOW_COL: Record<number, number> = {
+  1: 12, // Q1 → Q2: Sep=M
+  2: 16, // Q2 → Q3: Dec=Q
+  3: 20, // Q3 → Q4: Mar=U
+  4: 8,  // Q4 → Q1 next year: Jun=I
+};
+
+export async function recordPaymentToSheet(
+  sheetRow: number,
+  date: string,
+  amount: number,
+  feeRecord: { totalFee: number; q1Paid: number; q2Paid: number; q3Paid: number; q4Paid: number }
+): Promise<void> {
+  const sheets = getSheetsClient();
+  const month = new Date(date + "T00:00:00").getMonth() + 1;
+  const quarter = MONTH_TO_QUARTER[month];
+  const quarterSize = feeRecord.totalFee > 0 ? feeRecord.totalFee / 4 : 0;
+
+  const qPaid = (
+    quarter === 1 ? feeRecord.q1Paid :
+    quarter === 2 ? feeRecord.q2Paid :
+    quarter === 3 ? feeRecord.q3Paid :
+    feeRecord.q4Paid
+  );
+  const remaining = quarterSize - qPaid;
+
+  const monthColIdx = MONTH_TO_COL[month];
+  const monthCol = colLetter(monthColIdx);
+
+  const currentRes = await sheets.spreadsheets.values.get({
+    spreadsheetId: FEES_SHEET_ID,
+    range: `${SHEET_NAME}!${monthCol}${sheetRow}`,
+  });
+  const currentVal = parseNum(currentRes.data.values?.[0]?.[0]);
+
+  if (quarterSize === 0 || amount <= remaining || remaining <= 0) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: FEES_SHEET_ID,
+      range: `${SHEET_NAME}!${monthCol}${sheetRow}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [[currentVal + amount]] },
+    });
+  } else {
+    // Fill current quarter, overflow remainder into first month of next quarter
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: FEES_SHEET_ID,
+      range: `${SHEET_NAME}!${monthCol}${sheetRow}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [[currentVal + remaining]] },
+    });
+
+    const overflow = amount - remaining;
+    const overflowCol = colLetter(QUARTER_OVERFLOW_COL[quarter]);
+    const overflowRes = await sheets.spreadsheets.values.get({
+      spreadsheetId: FEES_SHEET_ID,
+      range: `${SHEET_NAME}!${overflowCol}${sheetRow}`,
+    });
+    const overflowVal = parseNum(overflowRes.data.values?.[0]?.[0]);
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: FEES_SHEET_ID,
+      range: `${SHEET_NAME}!${overflowCol}${sheetRow}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [[overflowVal + overflow]] },
+    });
+  }
+}
+
 export async function addFeeRecord(
   srNo: string,
   studentName: string,

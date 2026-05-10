@@ -13,12 +13,14 @@ import {
   School,
   RefreshCw,
   LogOut,
+  ClipboardList,
 } from "lucide-react";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/students", label: "Students", icon: Users },
   { href: "/fees", label: "Fees", icon: IndianRupee },
+  { href: "/daily-entry", label: "Daily Entry", icon: ClipboardList },
   { href: "/pending", label: "Pending Fees", icon: AlertCircle },
   { href: "/classes", label: "Classes", icon: GraduationCap },
 ];
