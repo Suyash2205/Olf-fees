@@ -9,6 +9,7 @@ import {
   AlertCircle,
   History,
   Pencil,
+  Trash2,
   Check,
   X,
 } from "lucide-react";
@@ -54,6 +55,10 @@ export default function DailyEntryForm({ fees: initialFees }: { fees: FeeRecord[
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editAmount, setEditAmount] = useState("");
   const [editSaving, setEditSaving] = useState(false);
+
+  // Delete confirm
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const suggestions = useMemo(() => {
     if (!inputValue || selectedFee) return [];
@@ -154,6 +159,27 @@ export default function DailyEntryForm({ fees: initialFees }: { fees: FeeRecord[
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleDelete(entry: DailyEntry) {
+    setDeleting(true);
+    try {
+      const res = await fetch("/api/daily-entry", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entryId: entry.id, studentName: entry.studentName, srNo: entry.srNo }),
+      });
+      if (!res.ok) throw new Error("Delete failed");
+      setConfirmDeleteId(null);
+      await Promise.all([
+        refreshStudentFee(entry.studentName),
+        refreshEntries(entry.srNo),
+      ]);
+    } catch {
+      setConfirmDeleteId(null);
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -392,6 +418,29 @@ export default function DailyEntryForm({ fees: initialFees }: { fees: FeeRecord[
                       </>
                     )}
                   </div>
+                ) : confirmDeleteId === entry.id ? (
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs text-slate-500">Delete?</span>
+                    {deleting ? (
+                      <Loader2 className="w-4 h-4 animate-spin text-red-500" />
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => handleDelete(entry)}
+                          className="text-xs font-medium text-red-600 hover:text-red-700 px-2 py-0.5 rounded border border-red-200 hover:bg-red-50 transition-colors"
+                        >
+                          Yes, delete
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeleteId(null)}
+                          className="text-slate-400 hover:text-slate-600"
+                          title="Cancel"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </>
+                    )}
+                  </div>
                 ) : (
                   <div className="flex items-center gap-2 shrink-0">
                     <span className="text-sm font-semibold text-green-700">{fmt(entry.amount)}</span>
@@ -399,11 +448,22 @@ export default function DailyEntryForm({ fees: initialFees }: { fees: FeeRecord[
                       onClick={() => {
                         setEditingId(entry.id);
                         setEditAmount(String(entry.amount));
+                        setConfirmDeleteId(null);
                       }}
                       className="text-slate-300 hover:text-blue-500 transition-colors"
                       title="Edit amount"
                     >
                       <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        setConfirmDeleteId(entry.id);
+                        setEditingId(null);
+                      }}
+                      className="text-slate-300 hover:text-red-500 transition-colors"
+                      title="Delete entry"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 )}

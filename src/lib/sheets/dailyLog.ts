@@ -78,3 +78,26 @@ export async function updateDailyEntry(rowId: string, newAmount: number): Promis
     requestBody: { values: [[newAmount]] },
   });
 }
+
+export async function deleteDailyEntry(rowId: string): Promise<void> {
+  await ensureSheet();
+  const sheets = getSheetsClient();
+  const meta = await sheets.spreadsheets.get({ spreadsheetId: FEES_SHEET_ID });
+  const sheet = meta.data.sheets?.find((s) => s.properties?.title === SHEET_NAME);
+  const sheetId = sheet?.properties?.sheetId;
+  if (sheetId === undefined) throw new Error("Daily Log sheet not found");
+
+  const rowIndex = Number(rowId) - 1; // 0-based
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId: FEES_SHEET_ID,
+    requestBody: {
+      requests: [
+        {
+          deleteDimension: {
+            range: { sheetId, dimension: "ROWS", startIndex: rowIndex, endIndex: rowIndex + 1 },
+          },
+        },
+      ],
+    },
+  });
+}

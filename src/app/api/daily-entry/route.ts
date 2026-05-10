@@ -4,6 +4,7 @@ import {
   getDailyEntriesForStudent,
   appendDailyEntry,
   updateDailyEntry,
+  deleteDailyEntry,
 } from "@/lib/sheets/dailyLog";
 import { getFeeByName, recordPaymentToSheet, recalculateStudentFees } from "@/lib/sheets/fees";
 
@@ -51,6 +52,41 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("daily entry error:", err);
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Unknown error" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const entryId: string = String(body.entryId);
+    const studentName: string = body.studentName?.trim();
+    const srNo: string = body.srNo?.trim();
+
+    if (!entryId || !studentName || !srNo) {
+      return NextResponse.json({ error: "entryId, studentName, and srNo are required" }, { status: 400 });
+    }
+
+    await deleteDailyEntry(entryId);
+
+    const feeRecord = await getFeeByName(studentName);
+    if (!feeRecord) {
+      return NextResponse.json({ error: "Student not found" }, { status: 404 });
+    }
+
+    const remaining = await getDailyEntriesForStudent(srNo);
+    const amounts = remaining
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map((e) => e.amount);
+
+    await recalculateStudentFees(feeRecord.sheetRow, feeRecord.totalFee, amounts);
+
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    console.error("delete entry error:", err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Unknown error" },
       { status: 500 }
