@@ -47,3 +47,17 @@ export async function getStudentByName(name: string): Promise<Student | null> {
   const students = await getAllStudents();
   return students.find((s) => s.name === name) ?? null;
 }
+
+export async function addStudent(name: string, className: string): Promise<void> {
+  const sheets = getSheetsClient();
+  // Append a new row — Google Sheets will place it after the last row with data
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: STUDENTS_SHEET_ID,
+    range: `${SHEET_NAME}!B:C`,
+    valueInputOption: "USER_ENTERED",
+    insertDataOption: "INSERT_ROWS",
+    requestBody: {
+      values: [["", name, className]],
+    },
+  });
+}

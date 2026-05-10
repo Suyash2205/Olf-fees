@@ -150,3 +150,22 @@ export async function getPendingFees(): Promise<PendingFeeSummary[]> {
     }))
     .sort((a, b) => b.balance - a.balance);
 }
+
+export async function addFeeRecord(
+  srNo: string,
+  studentName: string,
+  className: string,
+  totalFee: number
+): Promise<void> {
+  const sheets = getSheetsClient();
+  // Build a row matching the sheet columns (A-E minimum; rest blank)
+  // A=srNo, B=studentName, C=className, D=0(pending prev), E=totalFee
+  const row = [srNo, studentName, className, "0", totalFee.toString()];
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: FEES_SHEET_ID,
+    range: `${SHEET_NAME}!A:E`,
+    valueInputOption: "USER_ENTERED",
+    insertDataOption: "INSERT_ROWS",
+    requestBody: { values: [row] },
+  });
+}
