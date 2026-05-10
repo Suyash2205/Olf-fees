@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSession, signOut } from "next-auth/react";
+import Image from "next/image";
 import {
   LayoutDashboard,
   Users,
@@ -10,6 +12,7 @@ import {
   GraduationCap,
   School,
   RefreshCw,
+  LogOut,
 } from "lucide-react";
 
 const NAV_ITEMS = [
@@ -22,6 +25,7 @@ const NAV_ITEMS = [
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const { data: session } = useSession();
 
   return (
     <aside className="w-64 min-h-screen bg-white border-r border-slate-200 flex flex-col">
@@ -59,12 +63,41 @@ export default function Sidebar() {
         })}
       </nav>
 
-      {/* Footer */}
-      <div className="px-3 pb-4">
-        <div className="flex items-center gap-2 px-3 py-2 text-xs text-slate-400">
+      {/* Footer: user + sign out */}
+      <div className="px-3 pb-4 space-y-2">
+        <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-slate-400">
           <RefreshCw className="w-3 h-3" />
           <span>Synced with Google Sheets</span>
         </div>
+
+        {session?.user && (
+          <div className="flex items-center gap-2.5 px-3 py-2 rounded-lg border border-slate-100 bg-slate-50">
+            {session.user.image ? (
+              <Image
+                src={session.user.image}
+                alt={session.user.name ?? ""}
+                width={28}
+                height={28}
+                className="rounded-full"
+              />
+            ) : (
+              <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-xs font-bold">
+                {session.user.name?.[0] ?? "?"}
+              </div>
+            )}
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium text-slate-700 truncate">{session.user.name}</p>
+              <p className="text-xs text-slate-400 truncate">{session.user.email}</p>
+            </div>
+            <button
+              onClick={() => signOut({ callbackUrl: "/login" })}
+              title="Sign out"
+              className="text-slate-400 hover:text-red-500 transition-colors"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
       </div>
     </aside>
   );
