@@ -20,7 +20,8 @@ function formatDate(iso: string) {
   return `${d} ${months[Number(m) - 1]} ${y}`;
 }
 
-export default function DailyEntryForm({ fees }: { fees: FeeRecord[] }) {
+export default function DailyEntryForm({ fees: initialFees }: { fees: FeeRecord[] }) {
+  const [fees, setFees] = useState<FeeRecord[]>(initialFees);
   const [selectedSrNo, setSelectedSrNo] = useState("");
   const [date, setDate] = useState(todayISO());
   const [amount, setAmount] = useState("");
@@ -79,6 +80,14 @@ export default function DailyEntryForm({ fees }: { fees: FeeRecord[] }) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to record payment");
+      // Optimistically update the fee record so balance/paid refreshes immediately
+      const paid = Number(amount);
+      setFees((prev) =>
+        prev.map((f) => {
+          if (f.srNo !== selectedFee.srNo) return f;
+          return { ...f, totalPaid: f.totalPaid + paid, balance: f.balance - paid };
+        })
+      );
       setSuccess(true);
       setAmount("");
       setTimeout(() => setSuccess(false), 3000);

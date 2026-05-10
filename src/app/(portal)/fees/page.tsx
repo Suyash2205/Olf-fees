@@ -23,7 +23,7 @@ export default async function FeesPage({
       <div>
         <h1 className="text-2xl font-bold text-slate-800">Fees</h1>
         <p className="text-sm text-slate-500 mt-1">
-          {fees.length} students · click any cell to update payment amount
+          {fees.length} students · use Daily Entry to record payments
         </p>
       </div>
 
