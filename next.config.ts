@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Prevents googleapis from being bundled into edge runtime
+  serverExternalPackages: ["googleapis", "google-auth-library"],
 };
 
 export default nextConfig;
