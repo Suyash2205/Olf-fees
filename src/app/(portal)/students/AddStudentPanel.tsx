@@ -40,6 +40,8 @@ export default function AddStudentPanel() {
       if (!res.ok) throw new Error(data.error ?? "Failed to add student");
       setOpen(false);
       reset();
+      // Small delay so Sheets API propagates before the page re-fetches
+      await new Promise((r) => setTimeout(r, 1500));
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");

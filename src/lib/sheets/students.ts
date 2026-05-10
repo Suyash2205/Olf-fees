@@ -50,10 +50,10 @@ export async function getStudentByName(name: string): Promise<Student | null> {
 
 export async function addStudent(name: string, className: string): Promise<void> {
   const sheets = getSheetsClient();
-  // Append a new row — Google Sheets will place it after the last row with data
+  // Col A is empty, B = name, C = class — pass all three so columns line up
   await sheets.spreadsheets.values.append({
     spreadsheetId: STUDENTS_SHEET_ID,
-    range: `${SHEET_NAME}!B:C`,
+    range: `${SHEET_NAME}!A:C`,
     valueInputOption: "USER_ENTERED",
     insertDataOption: "INSERT_ROWS",
     requestBody: {
