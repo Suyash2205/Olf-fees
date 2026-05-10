@@ -227,6 +227,47 @@ export async function recordPaymentToSheet(
   }
 }
 
+// Recalculate all Q totals from scratch given a list of payment amounts (in order)
+export async function recalculateStudentFees(
+  sheetRow: number,
+  totalFee: number,
+  amounts: number[]
+): Promise<void> {
+  const sheets = getSheetsClient();
+  const quarterSize = totalFee > 0 ? totalFee / 4 : 0;
+  const qPaid = [0, 0, 0, 0];
+
+  for (const amount of amounts) {
+    let rem = amount;
+    for (let i = 0; i < 4 && rem > 0; i++) {
+      const space = quarterSize > 0 ? Math.max(0, quarterSize - qPaid[i]) : rem;
+      if (space <= 0) continue;
+      const toAdd = Math.min(rem, space);
+      qPaid[i] += toAdd;
+      rem -= toAdd;
+    }
+    if (rem > 0) qPaid[3] += rem;
+  }
+
+  for (let i = 0; i < 4; i++) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: FEES_SHEET_ID,
+      range: `${SHEET_NAME}!${colLetter(Q_TOTAL_COLS[i])}${sheetRow}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [[qPaid[i]]] },
+    });
+  }
+
+  const newTotalPaid = qPaid.reduce((s, v) => s + v, 0);
+  const newBalance = totalFee - newTotalPaid;
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: FEES_SHEET_ID,
+    range: `${SHEET_NAME}!${colLetter(COL.totalPaid)}${sheetRow}:${colLetter(COL.balance)}${sheetRow}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [[newTotalPaid, newBalance]] },
+  });
+}
+
 export async function addFeeRecord(
   srNo: string,
   studentName: string,

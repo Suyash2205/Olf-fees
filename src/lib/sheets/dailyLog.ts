@@ -67,3 +67,14 @@ export async function getDailyEntriesForStudent(srNo: string): Promise<DailyEntr
   const all = await getAllDailyEntries();
   return all.filter((e) => e.srNo === srNo);
 }
+
+export async function updateDailyEntry(rowId: string, newAmount: number): Promise<void> {
+  await ensureSheet();
+  const sheets = getSheetsClient();
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: FEES_SHEET_ID,
+    range: `${SHEET_NAME}!E${rowId}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [[newAmount]] },
+  });
+}
