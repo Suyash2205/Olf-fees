@@ -3,7 +3,12 @@ import DailyEntryForm from "./DailyEntryForm";
 
 export const dynamic = "force-dynamic";
 
-export default async function DailyEntryPage() {
+export default async function DailyEntryPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ student?: string }>;
+}) {
+  const { student } = await searchParams;
   let fees: Awaited<ReturnType<typeof getAllFees>> = [];
   let error: string | null = null;
 
@@ -28,7 +33,7 @@ export default async function DailyEntryPage() {
         </div>
       )}
 
-      <DailyEntryForm fees={fees} />
+      <DailyEntryForm fees={fees} initialStudentName={student} />
     </div>
   );
 }

@@ -31,12 +31,23 @@ function formatDate(iso: string) {
   return `${d} ${months[Number(m) - 1]} ${y}`;
 }
 
-export default function DailyEntryForm({ fees: initialFees }: { fees: FeeRecord[] }) {
+export default function DailyEntryForm({
+  fees: initialFees,
+  initialStudentName,
+}: {
+  fees: FeeRecord[];
+  initialStudentName?: string;
+}) {
   const [fees, setFees] = useState<FeeRecord[]>(initialFees);
 
   // Combobox
-  const [inputValue, setInputValue] = useState("");
-  const [selectedFee, setSelectedFee] = useState<FeeRecord | null>(null);
+  const initialFee = initialStudentName
+    ? (initialFees.find((f) => f.studentName === initialStudentName) ?? null)
+    : null;
+  const [inputValue, setInputValue] = useState(
+    initialFee ? `${initialFee.studentName} (${initialFee.className})` : ""
+  );
+  const [selectedFee, setSelectedFee] = useState<FeeRecord | null>(initialFee);
   const [showDropdown, setShowDropdown] = useState(false);
   const comboRef = useRef<HTMLDivElement>(null);
 

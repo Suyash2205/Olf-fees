@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from "react";
 import Link from "next/link";
-import { Search, ChevronRight } from "lucide-react";
+import { Search, ChevronRight, ClipboardList } from "lucide-react";
 import type { Student } from "@/lib/sheets/students";
 
 export default function StudentsTable({ students }: { students: Student[] }) {
@@ -65,6 +65,7 @@ export default function StudentsTable({ students }: { students: Student[] }) {
               <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Class</th>
               <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Fees</th>
               <th className="px-4 py-3 w-8" />
+              <th className="px-4 py-3 w-8" />
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
@@ -81,6 +82,15 @@ export default function StudentsTable({ students }: { students: Student[] }) {
                   <td className="px-4 py-3 font-medium text-slate-800">{s.name}</td>
                   <td className="px-4 py-3 text-slate-600">{s.className || "—"}</td>
                   <td className="px-4 py-3 text-slate-500">{s.fees || "—"}</td>
+                  <td className="px-4 py-3">
+                    <Link
+                      href={`/daily-entry?student=${encodeURIComponent(s.name)}`}
+                      className="text-slate-400 hover:text-purple-600 transition-colors"
+                      title="View payment log"
+                    >
+                      <ClipboardList className="w-4 h-4" />
+                    </Link>
+                  </td>
                   <td className="px-4 py-3">
                     <Link
                       href={`/fees?student=${encodeURIComponent(s.name)}`}
