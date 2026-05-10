@@ -1,3 +1,4 @@
+import { unstable_cache } from "next/cache";
 import { getSheetsClient, STUDENTS_SHEET_ID } from "./client";
 
 export interface Student {
@@ -29,19 +30,20 @@ function rowToStudent(row: string[], rowIndex: number): Student | null {
   };
 }
 
-export async function getAllStudents(): Promise<Student[]> {
+async function _getAllStudents(): Promise<Student[]> {
   const sheets = getSheetsClient();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: STUDENTS_SHEET_ID,
     range: `${SHEET_NAME}!A:L`,
   });
   const rows = res.data.values ?? [];
-  // Skip 2 header rows
   return rows
     .slice(2)
     .map((row, i) => rowToStudent(row as string[], i))
     .filter(Boolean) as Student[];
 }
+
+export const getAllStudents = unstable_cache(_getAllStudents, ["all-students"], { revalidate: 60 });
 
 export async function getStudentByName(name: string): Promise<Student | null> {
   const students = await getAllStudents();

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import {
   getAllDailyEntries,
   getDailyEntriesForStudent,
@@ -49,6 +50,7 @@ export async function POST(req: NextRequest) {
       amount,
     });
 
+    revalidatePath("/fees"); revalidatePath("/dashboard"); revalidatePath("/pending");
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("daily entry error:", err);
@@ -84,6 +86,7 @@ export async function DELETE(req: NextRequest) {
 
     await recalculateStudentFees(feeRecord.sheetRow, feeRecord.totalFee, amounts);
 
+    revalidatePath("/fees"); revalidatePath("/dashboard"); revalidatePath("/pending");
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("delete entry error:", err);
@@ -122,6 +125,7 @@ export async function PATCH(req: NextRequest) {
 
     await recalculateStudentFees(feeRecord.sheetRow, feeRecord.totalFee, amounts);
 
+    revalidatePath("/fees"); revalidatePath("/dashboard"); revalidatePath("/pending");
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("edit entry error:", err);

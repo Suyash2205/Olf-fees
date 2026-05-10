@@ -1,4 +1,3 @@
-import { getAllStudents } from "@/lib/sheets/students";
 import { getAllFees } from "@/lib/sheets/fees";
 import {
   Users,
@@ -21,12 +20,11 @@ function fmt(n: number) {
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  let students: Awaited<ReturnType<typeof getAllStudents>> = [];
   let fees: Awaited<ReturnType<typeof getAllFees>> = [];
   let error: string | null = null;
 
   try {
-    [students, fees] = await Promise.all([getAllStudents(), getAllFees()]);
+    fees = await getAllFees();
   } catch (e) {
     error = e instanceof Error ? e.message : "Failed to load data";
   }
@@ -38,10 +36,10 @@ export default async function DashboardPage() {
   const hasPending = fees.filter((f) => f.balance > 0).length;
   const collectionRate = totalExpected > 0 ? (totalCollected / totalExpected) * 100 : 0;
 
-  // Class distribution
+  // Class distribution (derived from fee records)
   const classMap: Record<string, number> = {};
-  for (const s of students) {
-    const cls = s.className || "Unknown";
+  for (const f of fees) {
+    const cls = f.className || "Unknown";
     classMap[cls] = (classMap[cls] ?? 0) + 1;
   }
   const topClasses = Object.entries(classMap)
@@ -51,7 +49,7 @@ export default async function DashboardPage() {
   const stats = [
     {
       label: "Total Students",
-      value: students.length.toString(),
+      value: fees.length.toString(),
       sub: `across ${Object.keys(classMap).length} classes`,
       icon: Users,
       color: "bg-blue-50 text-blue-600",

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { addStudent, getAllStudents } from "@/lib/sheets/students";
 import { addFeeRecord, getAllFees } from "@/lib/sheets/fees";
 
@@ -23,6 +24,9 @@ export async function POST(req: NextRequest) {
       addFeeRecord(srNo, name, className, totalFee),
     ]);
 
+    revalidatePath("/students");
+    revalidatePath("/fees");
+    revalidatePath("/dashboard");
     return NextResponse.json({ ok: true, srNo });
   } catch (err) {
     console.error("add student error:", err);

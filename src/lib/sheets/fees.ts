@@ -1,3 +1,4 @@
+import { unstable_cache } from "next/cache";
 import { getSheetsClient, FEES_SHEET_ID } from "./client";
 
 export interface FeeRecord {
@@ -83,19 +84,21 @@ function rowToFeeRecord(row: string[], rowIndex: number): FeeRecord | null {
   };
 }
 
-export async function getAllFees(): Promise<FeeRecord[]> {
+async function _getAllFees(): Promise<FeeRecord[]> {
   const sheets = getSheetsClient();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: FEES_SHEET_ID,
     range: `${SHEET_NAME}!A:Z`,
   });
   const rows = res.data.values ?? [];
-  // Skip the 3 header rows
   return rows
     .slice(3)
     .map((row, i) => rowToFeeRecord(row as string[], i))
     .filter(Boolean) as FeeRecord[];
 }
+
+// Cached: shared across concurrent requests, invalidated after any write via revalidateTag("fees")
+export const getAllFees = unstable_cache(_getAllFees, ["all-fees"], { revalidate: 60 });
 
 export async function getFeeByName(name: string): Promise<FeeRecord | null> {
   const fees = await getAllFees();
