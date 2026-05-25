@@ -18,6 +18,7 @@ export async function GET(req: NextRequest) {
     const fees = await getAllFees();
     return NextResponse.json(fees);
   } catch (err) {
+    console.error("GET /api/fees:", err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Unknown error" },
       { status: 500 }

@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isAdminAuthorized } from "@/lib/admin-auth";
 import { getAdmissionByGrNo } from "@/lib/sheets/admissions";
 import { invalidatePortalCache } from "@/lib/sheets/invalidate-portal-cache";
 import { updateAdmissionFromForm } from "@/lib/sheets/save-admission";
+import { deleteAdmissionByGrNo } from "@/lib/sheets/student-lifecycle";
 import { getFeeByName, getAllFees } from "@/lib/sheets/fees";
 
 export async function GET(
@@ -47,6 +49,27 @@ export async function PUT(
     return NextResponse.json({ ok: true, grNo: updated.grNo, fullName: updated.fullName });
   } catch (err) {
     console.error("admission PUT error:", err);
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Unknown error" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: Promise<{ grNo: string }> }
+) {
+  try {
+    if (!isAdminAuthorized(req)) {
+      return NextResponse.json({ error: "Admin access required." }, { status: 401 });
+    }
+    const { grNo } = await params;
+    const result = await deleteAdmissionByGrNo(decodeURIComponent(grNo));
+    invalidatePortalCache();
+    return NextResponse.json({ ok: true, ...result });
+  } catch (err) {
+    console.error("admission DELETE error:", err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Unknown error" },
       { status: 500 }

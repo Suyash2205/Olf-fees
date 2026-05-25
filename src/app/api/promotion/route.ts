@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidateTag } from "next/cache";
+import { isAdminAuthorized } from "@/lib/admin-auth";
 import {
   demoteAll,
   demoteOne,
@@ -23,6 +24,16 @@ export async function POST(req: NextRequest) {
 
     if (!action) {
       return NextResponse.json({ error: "action is required" }, { status: 400 });
+    }
+
+    const adminPassword =
+      typeof body.adminPassword === "string" ? body.adminPassword : undefined;
+
+    if (!isAdminAuthorized(req, adminPassword)) {
+      return NextResponse.json(
+        { error: "Incorrect admin password." },
+        { status: 401 }
+      );
     }
 
     let result;

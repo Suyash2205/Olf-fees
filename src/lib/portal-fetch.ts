@@ -3,7 +3,7 @@ export function portalFetch(
   input: RequestInfo | URL,
   init?: RequestInit
 ): Promise<Response> {
-  return fetch(input, { ...init, cache: "no-store" });
+  return fetch(input, { ...init, cache: "no-store", credentials: "include" });
 }
 
 /** Fees list API; `reorderSheet` rewrites the Google Sheet grouped by Standard. */

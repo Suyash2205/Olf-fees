@@ -1,6 +1,7 @@
 import { canonicalClassLabel } from "@/lib/fees/structure";
 import { compareByGradeThenName } from "@/lib/sort-by-grade";
 import { getSheetsClient, FEES_SHEET_ID, STUDENTS_SHEET_ID } from "./client";
+import { withSheetWriteLock } from "./sync-lock";
 
 const FEE_SHEET = "Fee details";
 const FEE_DATA_START = 4;
@@ -121,6 +122,8 @@ export async function sortStudentsSheet(): Promise<{ rowsSorted: number }> {
 
 /** Keep Fee details and student name list in the same grade order. */
 export async function sortPortalStudentSheets(): Promise<void> {
-  await sortFeeDetailsSheet();
-  await sortStudentsSheet();
+  return withSheetWriteLock(async () => {
+    await sortFeeDetailsSheet();
+    await sortStudentsSheet();
+  });
 }

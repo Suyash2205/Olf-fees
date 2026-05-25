@@ -124,6 +124,14 @@ export default function AdmissionProfile({ grNo }: { grNo: string }) {
         </div>
       </div>
 
+      <p className="text-sm text-slate-500">
+        To promote, demote, mark left/failed, or remove this student, use the{" "}
+        <Link href="/admin" className="text-blue-600 hover:underline font-medium">
+          Admin
+        </Link>{" "}
+        page.
+      </p>
+
       {/* Fee summary */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl border border-slate-200 p-4">

@@ -6,7 +6,7 @@ import {
 } from "@/lib/fees/structure";
 import { getSheetsClient, FEES_SHEET_ID } from "./client";
 import { sortPortalStudentSheets } from "./sort-sheets";
-import type { FeeRecord } from "./fees";
+import { syncFeeRowAmounts, type FeeRecord } from "./fees";
 
 export { CLASS_LADDER };
 export type { CanonicalClass };
@@ -31,6 +31,12 @@ const PASS_OUT_CLASS = "Pass out";
 function colLetter(idx: number): string {
   if (idx < 26) return String.fromCharCode(65 + idx);
   return String.fromCharCode(64 + Math.floor(idx / 26)) + String.fromCharCode(65 + (idx % 26));
+}
+
+function parseNum(val: string | undefined): number {
+  if (!val) return 0;
+  const n = parseFloat(String(val).replace(/[₹,]/g, ""));
+  return isNaN(n) ? 0 : n;
 }
 
 export function stripPassOutSuffix(name: string): string {
@@ -143,12 +149,6 @@ async function fetchAllFeeRecords(): Promise<FeeRecord[]> {
   });
   const rows = res.data.values ?? [];
 
-  function parseNum(val: string | undefined): number {
-    if (!val) return 0;
-    const n = parseFloat(val.replace(/[₹,]/g, ""));
-    return isNaN(n) ? 0 : n;
-  }
-
   return rows
     .slice(3)
     .map((row, i) => {
@@ -208,6 +208,17 @@ async function applyChanges(changes: PromotionChange[]): Promise<void> {
       },
     });
   }
+
+  for (const c of changes) {
+    if (c.totalFee === undefined) continue;
+    const discRes = await sheets.spreadsheets.values.get({
+      spreadsheetId: FEES_SHEET_ID,
+      range: `${SHEET_NAME}!${colLetter(COL.discount)}${c.sheetRow}`,
+    });
+    const discount = parseNum(discRes.data.values?.[0]?.[0]);
+    await syncFeeRowAmounts(c.sheetRow, c.totalFee, discount);
+  }
+
   await sortPortalStudentSheets();
 }
 

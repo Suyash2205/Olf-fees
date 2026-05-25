@@ -16,6 +16,7 @@ import {
   ClipboardList,
   UserPlus,
   Database,
+  Shield,
 } from "lucide-react";
 
 const NAV_ITEMS = [
@@ -27,6 +28,7 @@ const NAV_ITEMS = [
   { href: "/daily-entry", label: "Daily Entry", icon: ClipboardList },
   { href: "/pending", label: "Pending Fees", icon: AlertCircle },
   { href: "/classes", label: "Classes", icon: GraduationCap },
+  { href: "/admin", label: "Admin", icon: Shield },
 ];
 
 export default function Sidebar() {

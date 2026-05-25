@@ -1,6 +1,7 @@
 import {
   applyDiscount,
   getBaseTuition,
+  splitIntoQuarters,
   type DiscountType,
 } from "@/lib/fees/structure";
 import { parseGrNoFromNotes } from "@/lib/admission-form";
@@ -12,6 +13,7 @@ import {
   sortByGradeThenName,
 } from "@/lib/sort-by-grade";
 import { getSheetsClient, FEES_SHEET_ID } from "./client";
+import { feeRecordIsInactive, getInactiveStudentKeys } from "./fees-inactive";
 import { sortPortalStudentSheets } from "./sort-sheets";
 
 export interface FeeRecord {
@@ -115,38 +117,11 @@ export async function applyFeeDiscount(
 ): Promise<{ baseFee: number; discountAmount: number; finalFee: number }> {
   const baseFee = resolveFeeBase(record);
   const { discountAmount, finalFee } = applyDiscount(baseFee, discountType, discountValue);
-  const newBalance = Math.max(0, finalFee - record.totalPaid);
-
-  const sheets = getSheetsClient();
-  await sheets.spreadsheets.values.batchUpdate({
-    spreadsheetId: FEES_SHEET_ID,
-    requestBody: {
-      valueInputOption: "USER_ENTERED",
-      data: [
-        {
-          range: `${SHEET_NAME}!${colLetter(COL.totalFee)}${record.sheetRow}`,
-          values: [[finalFee]],
-        },
-        {
-          range: `${SHEET_NAME}!${colLetter(COL.discount)}${record.sheetRow}`,
-          values: [[discountAmount]],
-        },
-        {
-          range: `${SHEET_NAME}!${colLetter(COL.pendingCol)}${record.sheetRow}`,
-          values: [[newBalance]],
-        },
-        {
-          range: `${SHEET_NAME}!${colLetter(COL.balance)}${record.sheetRow}`,
-          values: [[newBalance]],
-        },
-      ],
-    },
-  });
-
+  await syncFeeRowAmounts(record.sheetRow, finalFee, discountAmount);
   return { baseFee, discountAmount, finalFee };
 }
 
-export async function readAllFeesFromSheet(): Promise<FeeRecord[]> {
+export async function readAllFeesFromSheetRaw(): Promise<FeeRecord[]> {
   const sheets = getSheetsClient();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: FEES_SHEET_ID,
@@ -156,8 +131,21 @@ export async function readAllFeesFromSheet(): Promise<FeeRecord[]> {
   const records = rows
     .slice(3)
     .map((row, i) => rowToFeeRecord(row as string[], i))
-    .filter((r): r is FeeRecord => r != null)
-    .filter((r) => !isPassOutClass(r.className, r.studentName));
+    .filter((r): r is FeeRecord => r != null);
+
+  return sortByGradeThenName(
+    records,
+    (f) => f.className,
+    (f) => f.studentName
+  );
+}
+
+/** Active students only (excludes Pass out and Left/Failed/Removed). */
+export async function readAllFeesFromSheet(): Promise<FeeRecord[]> {
+  const inactive = await getInactiveStudentKeys();
+  const records = (await readAllFeesFromSheetRaw())
+    .filter((r) => !isPassOutClass(r.className, r.studentName))
+    .filter((r) => !feeRecordIsInactive(r, inactive));
 
   return sortByGradeThenName(
     records,
@@ -246,6 +234,91 @@ const ALL_MONTH_COLS = Object.values(MONTH_TO_COL).sort((a, b) => a - b);
 // Quarter total columns (L, P, T, X)
 const Q_TOTAL_COLS = [COL.q1Paid, COL.q2Paid, COL.q3Paid, COL.q4Paid];
 
+/** Month column indices grouped by quarter (I–W). */
+const Q_MONTH_COL_GROUPS = [
+  [8, 9, 10],
+  [12, 13, 14],
+  [16, 17, 18],
+  [20, 21, 22],
+] as const;
+
+/** Sum monthly payment columns into Q1–Q4 paid totals. */
+export async function readQuarterPaidFromSheetRow(
+  sheetRow: number
+): Promise<[number, number, number, number]> {
+  const sheets = getSheetsClient();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: FEES_SHEET_ID,
+    range: `${SHEET_NAME}!${colLetter(8)}${sheetRow}:${colLetter(22)}${sheetRow}`,
+  });
+  const row = res.data.values?.[0] ?? [];
+  return Q_MONTH_COL_GROUPS.map((group) => {
+    let sum = 0;
+    for (const colIdx of group) {
+      sum += parseNum(row[colIdx - 8]);
+    }
+    return sum;
+  }) as [number, number, number, number];
+}
+
+/**
+ * After fees decided / discount changes, rewrite sheet totals so Q columns and
+ * pending match the new annual fee and existing monthly payments.
+ */
+export async function syncFeeRowAmounts(
+  sheetRow: number,
+  finalFee: number,
+  discountAmount: number
+): Promise<{
+  totalPaid: number;
+  balance: number;
+  quarterlyFees: [number, number, number, number];
+  qPaid: [number, number, number, number];
+}> {
+  const qPaid = await readQuarterPaidFromSheetRow(sheetRow);
+  const totalPaid = qPaid.reduce((s, v) => s + v, 0);
+  const balance = Math.max(0, finalFee - totalPaid);
+  const quarterlyFees = splitIntoQuarters(finalFee);
+  const pendingPct =
+    finalFee > 0 ? `${((balance / finalFee) * 100).toFixed(2)}%` : "";
+
+  const sheets = getSheetsClient();
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId: FEES_SHEET_ID,
+    requestBody: {
+      valueInputOption: "USER_ENTERED",
+      data: [
+        {
+          range: `${SHEET_NAME}!${colLetter(COL.totalFee)}${sheetRow}`,
+          values: [[finalFee]],
+        },
+        {
+          range: `${SHEET_NAME}!${colLetter(COL.discount)}${sheetRow}`,
+          values: [[discountAmount > 0 ? discountAmount : ""]],
+        },
+        {
+          range: `${SHEET_NAME}!${colLetter(5)}${sheetRow}`,
+          values: [[pendingPct]],
+        },
+        {
+          range: `${SHEET_NAME}!${colLetter(COL.pendingCol)}${sheetRow}`,
+          values: [[balance]],
+        },
+        {
+          range: `${SHEET_NAME}!${colLetter(COL.q1Paid)}${sheetRow}:${colLetter(COL.q4Paid)}${sheetRow}`,
+          values: [qPaid],
+        },
+        {
+          range: `${SHEET_NAME}!${colLetter(COL.totalPaid)}${sheetRow}:${colLetter(COL.balance)}${sheetRow}`,
+          values: [[totalPaid, balance]],
+        },
+      ],
+    },
+  });
+
+  return { totalPaid, balance, quarterlyFees, qPaid };
+}
+
 // Allocate a payment into Q1→Q2→Q3→Q4 in order, regardless of payment month.
 function allocateToQuarters(
   amount: number,
@@ -273,12 +346,6 @@ export async function recordPaymentToSheet(
   feeRecord: FeeRecord
 ): Promise<void> {
   const sheets = getSheetsClient();
-  const quarterSize = feeRecord.totalFee > 0 ? feeRecord.totalFee / 4 : 0;
-  const currentQPaid = [feeRecord.q1Paid, feeRecord.q2Paid, feeRecord.q3Paid, feeRecord.q4Paid];
-  const newQPaid = allocateToQuarters(amount, currentQPaid, quarterSize);
-
-  const newTotalPaid = newQPaid.reduce((s, v) => s + v, 0);
-  const newBalance = feeRecord.totalFee - newTotalPaid;
 
   // Read the current monthly column value to add to it
   const month = new Date(date + "T00:00:00").getMonth() + 1;
@@ -286,23 +353,6 @@ export async function recordPaymentToSheet(
 
   const batchData: { range: string; values: (number | string)[][] }[] = [];
 
-  // Write changed Q total columns
-  for (let i = 0; i < 4; i++) {
-    if (newQPaid[i] !== currentQPaid[i]) {
-      batchData.push({
-        range: `${SHEET_NAME}!${colLetter(Q_TOTAL_COLS[i])}${sheetRow}`,
-        values: [[newQPaid[i]]],
-      });
-    }
-  }
-
-  // Write totalPaid (Y) and balance (Z)
-  batchData.push({
-    range: `${SHEET_NAME}!${colLetter(COL.totalPaid)}${sheetRow}:${colLetter(COL.balance)}${sheetRow}`,
-    values: [[newTotalPaid, newBalance]],
-  });
-
-  // Write to the payment month's column (read first to add)
   if (monthColIdx !== undefined) {
     const readRes = await sheets.spreadsheets.values.get({
       spreadsheetId: FEES_SHEET_ID,
@@ -315,13 +365,18 @@ export async function recordPaymentToSheet(
     });
   }
 
-  await sheets.spreadsheets.values.batchUpdate({
-    spreadsheetId: FEES_SHEET_ID,
-    requestBody: {
-      valueInputOption: "USER_ENTERED",
-      data: batchData,
-    },
-  });
+  if (batchData.length > 0) {
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId: FEES_SHEET_ID,
+      requestBody: {
+        valueInputOption: "USER_ENTERED",
+        data: batchData,
+      },
+    });
+  }
+
+  // Reconcile Q totals, pending, and % from monthly columns + current annual fee
+  await syncFeeRowAmounts(sheetRow, feeRecord.totalFee, feeRecord.discount);
 }
 
 // Recalculate all Q totals AND monthly columns from scratch given the full payment history.
@@ -441,7 +496,6 @@ export async function syncFeeFromAdmission(input: {
     return;
   }
 
-  const balance = Math.max(0, input.annualFee - fee.totalPaid);
   const sheets = getSheetsClient();
   await sheets.spreadsheets.values.batchUpdate({
     spreadsheetId: FEES_SHEET_ID,
@@ -457,32 +511,20 @@ export async function syncFeeFromAdmission(input: {
           values: [[input.standard]],
         },
         {
-          range: `${SHEET_NAME}!${colLetter(COL.pendingCol)}${fee.sheetRow}`,
-          values: [[balance]],
-        },
-        {
-          range: `${SHEET_NAME}!${colLetter(COL.totalFee)}${fee.sheetRow}`,
-          values: [[input.annualFee]],
-        },
-        {
           range: `${SHEET_NAME}!${colLetter(COL.notes)}${fee.sheetRow}`,
           values: [[input.grNo ? `GR: ${input.grNo}` : fee.notes]],
-        },
-        {
-          range: `${SHEET_NAME}!${colLetter(COL.discount)}${fee.sheetRow}`,
-          values: [[input.discountAmount > 0 ? input.discountAmount : ""]],
-        },
-        {
-          range: `${SHEET_NAME}!${colLetter(COL.balance)}${fee.sheetRow}`,
-          values: [[balance]],
         },
       ],
     },
   });
+  await syncFeeRowAmounts(fee.sheetRow, input.annualFee, input.discountAmount);
   await sortPortalStudentSheets();
 }
 
-export async function addFeeRecord(input: NewFeeRecordInput): Promise<void> {
+export async function addFeeRecord(
+  input: NewFeeRecordInput,
+  opts?: { skipSort?: boolean }
+): Promise<void> {
   const { srNo, studentName, className, totalFee, discountAmount = 0, grNo } = input;
   const sheets = getSheetsClient();
   const balance = totalFee > 0 ? totalFee : 0;
@@ -505,7 +547,7 @@ export async function addFeeRecord(input: NewFeeRecordInput): Promise<void> {
     insertDataOption: "INSERT_ROWS",
     requestBody: { values: [row] },
   });
-  await sortPortalStudentSheets();
+  if (!opts?.skipSort) await sortPortalStudentSheets();
 }
 
 /** Payment / pending columns to wipe for a fresh academic year (keeps name, class, fees decided). */

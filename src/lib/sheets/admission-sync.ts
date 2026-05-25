@@ -1,7 +1,8 @@
 import { normalizeStudentName } from "@/lib/admission-utils";
 import { readAllAdmissionsFromSheet } from "./admissions";
-import { addFeeRecord, readAllFeesFromSheet, type FeeRecord } from "./fees";
+import { addFeeRecord, readAllFeesFromSheetRaw, type FeeRecord } from "./fees";
 import { sortPortalStudentSheets } from "./sort-sheets";
+import { withSheetWriteLock } from "./sync-lock";
 import { addStudent } from "./students";
 
 function feeHasStudent(
@@ -24,7 +25,7 @@ export async function registerStudentFromAdmission(input: {
   discountAmount: number;
   grNo: string;
 }): Promise<{ srNo: string; created: boolean }> {
-  const fees = await readAllFeesFromSheet();
+  const fees = await readAllFeesFromSheetRaw();
   if (feeHasStudent(fees, input.fullName, input.grNo)) {
     const existing = fees.find(
       (f) => normalizeStudentName(f.studentName) === normalizeStudentName(input.fullName)
@@ -51,50 +52,55 @@ export async function registerStudentFromAdmission(input: {
 
 /** Admissions tab rows missing from Fee details (e.g. added manually in Sheets). */
 export async function syncMissingAdmissionFees(): Promise<number> {
-  const [admissions, fees] = await Promise.all([
-    readAllAdmissionsFromSheet(),
-    readAllFeesFromSheet(),
-  ]);
+  return withSheetWriteLock(async () => {
+    const [admissions, fees] = await Promise.all([
+      readAllAdmissionsFromSheet(),
+      readAllFeesFromSheetRaw(),
+    ]);
 
-  let maxSr = fees.reduce((m, f) => Math.max(m, Number(f.srNo) || 0), 0);
-  let added = 0;
+    let maxSr = fees.reduce((m, f) => Math.max(m, Number(f.srNo) || 0), 0);
+    let added = 0;
 
-  for (const a of admissions) {
-    if (a.status && a.status.toLowerCase() !== "active") continue;
-    const name = a.fullName.trim();
-    if (!name) continue;
-    if (feeHasStudent(fees, name, a.grNo)) continue;
+    for (const a of admissions) {
+      if (a.status && a.status.toLowerCase() !== "active") continue;
+      const name = a.fullName.trim();
+      if (!name) continue;
+      if (feeHasStudent(fees, name, a.grNo)) continue;
 
-    maxSr += 1;
-    const srNo = String(maxSr);
+      maxSr += 1;
+      const srNo = String(maxSr);
 
-    await addFeeRecord({
-      srNo,
-      studentName: name,
-      className: a.standard,
-      totalFee: a.annualFee,
-      discountAmount: a.discount,
-      grNo: a.grNo,
-    });
-    await addStudent(name, a.standard);
+      await addFeeRecord(
+        {
+          srNo,
+          studentName: name,
+          className: a.standard,
+          totalFee: a.annualFee,
+          discountAmount: a.discount,
+          grNo: a.grNo,
+        },
+        { skipSort: true }
+      );
+      await addStudent(name, a.standard);
 
-    fees.push({
-      srNo,
-      studentName: name,
-      className: a.standard,
-      totalFee: a.annualFee,
-      totalPaid: 0,
-      balance: a.annualFee,
-      notes: `GR: ${a.grNo}`,
-      discount: a.discount,
-      q1Paid: 0,
-      q2Paid: 0,
-      q3Paid: 0,
-      q4Paid: 0,
-      sheetRow: 0,
-    } satisfies FeeRecord);
-    added++;
-  }
-  if (added > 0) await sortPortalStudentSheets();
-  return added;
+      fees.push({
+        srNo,
+        studentName: name,
+        className: a.standard,
+        totalFee: a.annualFee,
+        totalPaid: 0,
+        balance: a.annualFee,
+        notes: `GR: ${a.grNo}`,
+        discount: a.discount,
+        q1Paid: 0,
+        q2Paid: 0,
+        q3Paid: 0,
+        q4Paid: 0,
+        sheetRow: 0,
+      } satisfies FeeRecord);
+      added++;
+    }
+    if (added > 0) await sortPortalStudentSheets();
+    return added;
+  });
 }

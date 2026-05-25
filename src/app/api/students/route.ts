@@ -5,19 +5,14 @@ import {
 } from "@/lib/fees/structure";
 import { parseGrNoFromNotes } from "@/lib/admission-form";
 import { normalizeStudentName } from "@/lib/admission-utils";
-import {
-  registerStudentFromAdmission,
-  syncMissingAdmissionFees,
-} from "@/lib/sheets/admission-sync";
+import { registerStudentFromAdmission } from "@/lib/sheets/admission-sync";
 import { getAllAdmissions } from "@/lib/sheets/admissions";
 import { getAllFees } from "@/lib/sheets/fees";
 import { invalidatePortalCache } from "@/lib/sheets/invalidate-portal-cache";
 
-// Derive student list from fee records — avoids a separate slow Sheets API call.
+// Derive student list from fee records — sync runs on GET /api/fees only (avoids parallel write races).
 export async function GET() {
   try {
-    const synced = await syncMissingAdmissionFees();
-    if (synced > 0) invalidatePortalCache();
     const [fees, admissions] = await Promise.all([getAllFees(), getAllAdmissions()]);
     const grByName = new Map(
       admissions.map((a) => [normalizeStudentName(a.fullName), a.grNo])
@@ -39,6 +34,7 @@ export async function GET() {
     });
     return NextResponse.json(students);
   } catch (err) {
+    console.error("GET /api/students:", err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Unknown error" },
       { status: 500 }

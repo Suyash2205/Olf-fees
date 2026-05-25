@@ -17,10 +17,13 @@ export async function proxy(request: NextRequest) {
 export const config = {
   matcher: [
     "/dashboard/:path*",
+    "/admissions/:path*",
     "/students/:path*",
     "/fees/:path*",
     "/daily-entry/:path*",
     "/pending/:path*",
     "/classes/:path*",
+    "/udise/:path*",
+    "/admin/:path*",
   ],
 };

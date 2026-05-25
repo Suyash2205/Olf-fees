@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Search, RefreshCw, ChevronRight } from "lucide-react";
+import { isActiveStatus } from "@/lib/student-status";
 import type { AdmissionRecord } from "@/lib/sheets/admissions";
 import { formatINR } from "@/lib/fees/structure";
 import { usePortalRefresh } from "@/lib/use-portal-refresh";
@@ -81,6 +82,10 @@ export default function AdmissionsList() {
         <span className="text-sm text-slate-400">{filtered.length} students</span>
       </div>
 
+      <p className="text-xs text-slate-500">
+        To mark left/failed or delete a student, use the <Link href="/admin" className="text-blue-600 hover:underline">Admin</Link> page.
+      </p>
+
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         <table className="w-full text-sm">
           <thead>
@@ -90,13 +95,14 @@ export default function AdmissionsList() {
               <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase">Class</th>
               <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase">Fee</th>
               <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase">Contact</th>
+              <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase">Status</th>
               <th className="px-4 py-3 w-10" />
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-16 text-center text-slate-400">
+                <td colSpan={7} className="px-4 py-16 text-center text-slate-400">
                   No admissions yet.{" "}
                   <Link href="/admissions/new" className="text-blue-600 hover:underline">
                     Add first student
@@ -104,25 +110,39 @@ export default function AdmissionsList() {
                 </td>
               </tr>
             ) : (
-              filtered.map((r) => (
-                <tr key={r.grNo} className="hover:bg-slate-50">
-                  <td className="px-4 py-3 font-mono text-xs text-slate-500">{r.grNo}</td>
-                  <td className="px-4 py-3 font-medium text-slate-800">{r.fullName}</td>
-                  <td className="px-4 py-3 text-slate-600">{r.standard}</td>
-                  <td className="px-4 py-3 text-slate-600">
-                    {r.annualFee > 0 ? formatINR(r.annualFee) : "—"}
-                  </td>
-                  <td className="px-4 py-3 text-slate-500">{r.studentContact || r.fatherContact || "—"}</td>
-                  <td className="px-4 py-3">
-                    <Link
-                      href={`/admissions/${encodeURIComponent(r.grNo)}`}
-                      className="text-slate-400 hover:text-blue-600"
-                    >
-                      <ChevronRight className="w-4 h-4" />
-                    </Link>
-                  </td>
-                </tr>
-              ))
+              filtered.map((r) => {
+                const inactive = !isActiveStatus(r.status);
+                return (
+                  <tr key={r.grNo} className={`hover:bg-slate-50 ${inactive ? "opacity-60" : ""}`}>
+                    <td className="px-4 py-3 font-mono text-xs text-slate-500">{r.grNo}</td>
+                    <td className="px-4 py-3 font-medium text-slate-800">{r.fullName}</td>
+                    <td className="px-4 py-3 text-slate-600">{r.standard}</td>
+                    <td className="px-4 py-3 text-slate-600">
+                      {r.annualFee > 0 ? formatINR(r.annualFee) : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-slate-500">{r.studentContact || r.fatherContact || "—"}</td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={`text-xs px-2 py-0.5 rounded-full ${
+                          inactive
+                            ? "bg-amber-100 text-amber-800"
+                            : "bg-emerald-50 text-emerald-700"
+                        }`}
+                      >
+                        {r.status || "Active"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <Link
+                        href={`/admissions/${encodeURIComponent(r.grNo)}`}
+                        className="text-slate-400 hover:text-blue-600"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </Link>
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>

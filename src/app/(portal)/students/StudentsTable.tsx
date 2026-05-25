@@ -2,15 +2,11 @@
 
 import { useState, useMemo, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   Search,
   ChevronRight,
   ClipboardList,
   RefreshCw,
-  ArrowUp,
-  ArrowDown,
-  Loader2,
   UserCircle,
 } from "lucide-react";
 
@@ -31,13 +27,11 @@ function isPassOut(name: string, className: string): boolean {
 }
 
 export default function StudentsTable() {
-  const router = useRouter();
   const [students, setStudents] = useState<StudentRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [classFilter, setClassFilter] = useState("all");
-  const [rowBusy, setRowBusy] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -64,35 +58,6 @@ export default function StudentsTable() {
     window.addEventListener("students-refresh", onRefresh);
     return () => window.removeEventListener("students-refresh", onRefresh);
   }, [load]);
-
-  async function runRowAction(
-    sheetRow: number,
-    action: "promote" | "demote",
-    studentName: string
-  ) {
-    const verb = action === "promote" ? "Promote" : "Demote";
-    if (!confirm(`${verb} ${studentName}?`)) return;
-
-    setRowBusy(sheetRow);
-    try {
-      const res = await portalFetch("/api/promotion", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, sheetRow }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? `Error ${res.status}`);
-      if (data.skipped > 0 && data.updated === 0) {
-        alert(data.errors?.[0] ?? "No change made");
-      }
-      await load();
-      router.refresh();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed");
-    } finally {
-      setRowBusy(null);
-    }
-  }
 
   const classes = useMemo(
     () => ["all", ...sortClassNames(new Set(students.map((s) => s.className).filter(Boolean)))],
@@ -182,9 +147,6 @@ export default function StudentsTable() {
                 Fees
               </th>
               <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                Class change
-              </th>
-              <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">
                 Profile
               </th>
               <th className="px-4 py-3 w-8" />
@@ -194,14 +156,13 @@ export default function StudentsTable() {
           <tbody className="divide-y divide-slate-50">
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-4 py-12 text-center text-slate-400">
+                <td colSpan={7} className="px-4 py-12 text-center text-slate-400">
                   No students found
                 </td>
               </tr>
             ) : (
               filtered.map((s) => {
                 const passOut = isPassOut(s.name, s.className);
-                const busy = rowBusy === s.sheetRow;
                 return (
                   <tr key={s.sheetRow} className="hover:bg-slate-50 transition-colors">
                     <td className="px-4 py-3 text-xs text-slate-400">{s.sheetRow - 3}</td>
@@ -215,37 +176,6 @@ export default function StudentsTable() {
                     </td>
                     <td className="px-4 py-3 text-slate-600">{s.className || "—"}</td>
                     <td className="px-4 py-3 text-slate-500">{s.fees || "—"}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-1">
-                        {busy ? (
-                          <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
-                        ) : (
-                          <>
-                            <button
-                              type="button"
-                              title={
-                                passOut
-                                  ? "Already pass out"
-                                  : "Promote one standard + 2026–27 fee"
-                              }
-                              disabled={passOut}
-                              onClick={() => runRowAction(s.sheetRow, "promote", s.name)}
-                              className="p-1.5 rounded-md text-emerald-600 hover:bg-emerald-50 disabled:opacity-30 disabled:pointer-events-none transition-colors"
-                            >
-                              <ArrowUp className="w-4 h-4" />
-                            </button>
-                            <button
-                              type="button"
-                              title="Demote one standard + matching fee"
-                              onClick={() => runRowAction(s.sheetRow, "demote", s.name)}
-                              className="p-1.5 rounded-md text-slate-600 hover:bg-slate-100 transition-colors"
-                            >
-                              <ArrowDown className="w-4 h-4" />
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </td>
                     <td className="px-4 py-3">
                       {s.hasProfile && s.grNo ? (
                         <Link
