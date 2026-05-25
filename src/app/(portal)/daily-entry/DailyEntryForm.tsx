@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   CalendarDays,
   IndianRupee,
@@ -12,8 +13,10 @@ import {
   Trash2,
   Check,
   X,
+  RefreshCw,
 } from "lucide-react";
 import type { FeeRecord } from "@/lib/sheets/fees";
+import { sortByGradeThenName } from "@/lib/sort-by-grade";
 import type { DailyEntry } from "@/lib/sheets/dailyLog";
 
 function todayISO() {
@@ -31,27 +34,53 @@ function formatDate(iso: string) {
   return `${d} ${months[Number(m) - 1]} ${y}`;
 }
 
-export default function DailyEntryForm({
-  fees: initialFees,
-  initialStudentName,
-}: {
-  fees: FeeRecord[];
-  initialStudentName?: string;
-}) {
-  const [fees, setFees] = useState<FeeRecord[]>(initialFees);
+export default function DailyEntryForm() {
+  const searchParams = useSearchParams();
+  const initialStudentName = searchParams.get("student") ?? undefined;
 
-  // Combobox
-  const initialFee = initialStudentName
-    ? (initialFees.find((f) => f.studentName === initialStudentName) ?? null)
-    : null;
-  const [inputValue, setInputValue] = useState(
-    initialFee ? `${initialFee.studentName} (${initialFee.className})` : ""
-  );
-  const [selectedFee, setSelectedFee] = useState<FeeRecord | null>(initialFee);
+  const [fees, setFees] = useState<FeeRecord[]>([]);
+  const [feesLoading, setFeesLoading] = useState(true);
+  const [feesError, setFeesError] = useState<string | null>(null);
+
+  const loadFees = useCallback(async () => {
+    setFeesLoading(true);
+    setFeesError(null);
+    try {
+      const res = await fetch("/api/fees");
+      if (!res.ok) throw new Error(`Server error ${res.status}`);
+      const data: FeeRecord[] = await res.json();
+      setFees(data);
+    } catch (e) {
+      setFeesError(e instanceof Error ? e.message : "Failed to load students");
+    } finally {
+      setFeesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadFees(); }, [loadFees]);
+
+  // Pre-select student once fees load
+  const initialSelected = useMemo(() => {
+    if (!initialStudentName || fees.length === 0) return null;
+    return fees.find((f) => f.studentName === initialStudentName) ?? null;
+  }, [initialStudentName, fees]);
+
+  const [inputValue, setInputValue] = useState("");
+  const [selectedFee, setSelectedFee] = useState<FeeRecord | null>(null);
   const [showDropdown, setShowDropdown] = useState(false);
   const comboRef = useRef<HTMLDivElement>(null);
+  const didPreselect = useRef(false);
 
-  // Form
+  // Apply pre-selection once
+  useEffect(() => {
+    if (!didPreselect.current && initialSelected) {
+      didPreselect.current = true;
+      setSelectedFee(initialSelected);
+      setInputValue(`${initialSelected.studentName} (${initialSelected.className})`);
+    }
+  }, [initialSelected]);
+
+  // Form state
   const [date, setDate] = useState(todayISO());
   const [amount, setAmount] = useState("");
   const [saving, setSaving] = useState(false);
@@ -74,17 +103,18 @@ export default function DailyEntryForm({
   const suggestions = useMemo(() => {
     if (!inputValue || selectedFee) return [];
     const q = inputValue.toLowerCase();
-    return fees
-      .filter(
+    return sortByGradeThenName(
+      fees.filter(
         (f) =>
           f.studentName.toLowerCase().includes(q) ||
           f.className.toLowerCase().includes(q) ||
           f.srNo.includes(q)
-      )
-      .slice(0, 10);
+      ),
+      (f) => f.className,
+      (f) => f.studentName
+    ).slice(0, 10);
   }, [inputValue, selectedFee, fees]);
 
-  // Close dropdown on outside click
   useEffect(() => {
     function onClickOutside(e: MouseEvent) {
       if (comboRef.current && !comboRef.current.contains(e.target as Node)) {
@@ -95,12 +125,8 @@ export default function DailyEntryForm({
     return () => document.removeEventListener("mousedown", onClickOutside);
   }, []);
 
-  // Fetch entries whenever selected student changes
   useEffect(() => {
-    if (!selectedFee) {
-      setEntries([]);
-      return;
-    }
+    if (!selectedFee) { setEntries([]); return; }
     setLoadingEntries(true);
     fetch(`/api/daily-entry?srNo=${encodeURIComponent(selectedFee.srNo)}`)
       .then((r) => r.json())
@@ -122,7 +148,6 @@ export default function DailyEntryForm({
     setEntries([]);
   }
 
-  // Re-fetch this student's fee record to get the latest balance from the sheet
   async function refreshStudentFee(studentName: string) {
     try {
       const res = await fetch(`/api/fees?name=${encodeURIComponent(studentName)}`);
@@ -202,12 +227,7 @@ export default function DailyEntryForm({
       const res = await fetch("/api/daily-entry", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          entryId: entry.id,
-          newAmount: newAmt,
-          studentName: entry.studentName,
-          srNo: entry.srNo,
-        }),
+        body: JSON.stringify({ entryId: entry.id, newAmount: newAmt, studentName: entry.studentName, srNo: entry.srNo }),
       });
       if (!res.ok) throw new Error("Update failed");
       setEditingId(null);
@@ -222,6 +242,26 @@ export default function DailyEntryForm({
     }
   }
 
+  if (feesLoading) {
+    return (
+      <div className="flex flex-col items-center gap-3 py-20 text-slate-400">
+        <RefreshCw className="w-6 h-6 animate-spin" />
+        <p className="text-sm">Loading student list…</p>
+      </div>
+    );
+  }
+
+  if (feesError) {
+    return (
+      <div className="flex flex-col items-center gap-3 py-20 text-center">
+        <p className="text-sm text-red-600">{feesError}</p>
+        <button onClick={loadFees} className="text-sm px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+          Retry
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       {/* Left: form */}
@@ -229,7 +269,6 @@ export default function DailyEntryForm({
         <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
           <h2 className="font-semibold text-slate-800">Record Payment</h2>
 
-          {/* Unified combobox */}
           <div ref={comboRef} className="relative">
             <label className="block text-sm font-medium text-slate-700 mb-1">Student</label>
             <div className="relative">
@@ -239,23 +278,14 @@ export default function DailyEntryForm({
                 value={inputValue}
                 onChange={(e) => {
                   setInputValue(e.target.value);
-                  if (selectedFee) {
-                    setSelectedFee(null);
-                    setEntries([]);
-                  }
+                  if (selectedFee) { setSelectedFee(null); setEntries([]); }
                   setShowDropdown(true);
                 }}
-                onFocus={() => {
-                  if (!selectedFee && inputValue) setShowDropdown(true);
-                }}
+                onFocus={() => { if (!selectedFee && inputValue) setShowDropdown(true); }}
                 className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 pr-8"
               />
               {(inputValue || selectedFee) && (
-                <button
-                  type="button"
-                  onClick={clearSelection}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                >
+                <button type="button" onClick={clearSelection} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
                   <X className="w-4 h-4" />
                 </button>
               )}
@@ -278,7 +308,6 @@ export default function DailyEntryForm({
             )}
           </div>
 
-          {/* Student summary */}
           {selectedFee && (
             <div className="bg-slate-50 rounded-lg px-4 py-3 text-sm space-y-1.5">
               <div className="flex justify-between">
@@ -287,9 +316,7 @@ export default function DailyEntryForm({
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Per Quarter</span>
-                <span className="font-medium">
-                  {selectedFee.totalFee > 0 ? fmt(selectedFee.totalFee / 4) : "—"}
-                </span>
+                <span className="font-medium">{selectedFee.totalFee > 0 ? fmt(selectedFee.totalFee / 4) : "—"}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Paid so far</span>
@@ -352,14 +379,7 @@ export default function DailyEntryForm({
             disabled={saving || !selectedFee}
             className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-60 transition-colors"
           >
-            {saving ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Saving...
-              </>
-            ) : (
-              "Record Payment"
-            )}
+            {saving ? <><Loader2 className="w-4 h-4 animate-spin" />Saving...</> : "Record Payment"}
           </button>
         </form>
       </div>
@@ -412,20 +432,8 @@ export default function DailyEntryForm({
                       <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
                     ) : (
                       <>
-                        <button
-                          onClick={() => handleEditSave(entry)}
-                          className="text-green-600 hover:text-green-700"
-                          title="Save"
-                        >
-                          <Check className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => setEditingId(null)}
-                          className="text-slate-400 hover:text-slate-600"
-                          title="Cancel"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
+                        <button onClick={() => handleEditSave(entry)} className="text-green-600 hover:text-green-700" title="Save"><Check className="w-4 h-4" /></button>
+                        <button onClick={() => setEditingId(null)} className="text-slate-400 hover:text-slate-600" title="Cancel"><X className="w-4 h-4" /></button>
                       </>
                     )}
                   </div>
@@ -436,19 +444,8 @@ export default function DailyEntryForm({
                       <Loader2 className="w-4 h-4 animate-spin text-red-500" />
                     ) : (
                       <>
-                        <button
-                          onClick={() => handleDelete(entry)}
-                          className="text-xs font-medium text-red-600 hover:text-red-700 px-2 py-0.5 rounded border border-red-200 hover:bg-red-50 transition-colors"
-                        >
-                          Yes, delete
-                        </button>
-                        <button
-                          onClick={() => setConfirmDeleteId(null)}
-                          className="text-slate-400 hover:text-slate-600"
-                          title="Cancel"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
+                        <button onClick={() => handleDelete(entry)} className="text-xs font-medium text-red-600 hover:text-red-700 px-2 py-0.5 rounded border border-red-200 hover:bg-red-50 transition-colors">Yes, delete</button>
+                        <button onClick={() => setConfirmDeleteId(null)} className="text-slate-400 hover:text-slate-600" title="Cancel"><X className="w-4 h-4" /></button>
                       </>
                     )}
                   </div>
@@ -456,23 +453,14 @@ export default function DailyEntryForm({
                   <div className="flex items-center gap-2 shrink-0">
                     <span className="text-sm font-semibold text-green-700">{fmt(entry.amount)}</span>
                     <button
-                      onClick={() => {
-                        setEditingId(entry.id);
-                        setEditAmount(String(entry.amount));
-                        setConfirmDeleteId(null);
-                      }}
-                      className="text-slate-300 hover:text-blue-500 transition-colors"
-                      title="Edit amount"
+                      onClick={() => { setEditingId(entry.id); setEditAmount(String(entry.amount)); setConfirmDeleteId(null); }}
+                      className="text-slate-300 hover:text-blue-500 transition-colors" title="Edit amount"
                     >
                       <Pencil className="w-3.5 h-3.5" />
                     </button>
                     <button
-                      onClick={() => {
-                        setConfirmDeleteId(entry.id);
-                        setEditingId(null);
-                      }}
-                      className="text-slate-300 hover:text-red-500 transition-colors"
-                      title="Delete entry"
+                      onClick={() => { setConfirmDeleteId(entry.id); setEditingId(null); }}
+                      className="text-slate-300 hover:text-red-500 transition-colors" title="Delete entry"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -485,12 +473,8 @@ export default function DailyEntryForm({
 
         {entries.length > 0 && (
           <div className="px-5 py-3 border-t border-slate-100 flex justify-between text-sm">
-            <span className="text-slate-500">
-              {entries.length} payment{entries.length !== 1 ? "s" : ""}
-            </span>
-            <span className="font-semibold text-green-700">
-              {fmt(entries.reduce((s, e) => s + e.amount, 0))} total
-            </span>
+            <span className="text-slate-500">{entries.length} payment{entries.length !== 1 ? "s" : ""}</span>
+            <span className="font-semibold text-green-700">{fmt(entries.reduce((s, e) => s + e.amount, 0))} total</span>
           </div>
         )}
       </div>

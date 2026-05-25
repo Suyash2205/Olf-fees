@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { revalidatePath } from "next/cache";
+import { revalidateTag } from "next/cache";
 import {
   getAllDailyEntries,
   getDailyEntriesForStudent,
@@ -8,6 +8,11 @@ import {
   deleteDailyEntry,
 } from "@/lib/sheets/dailyLog";
 import { getFeeByName, recordPaymentToSheet, recalculateStudentFees } from "@/lib/sheets/fees";
+
+// revalidateTag requires 2 args in Next.js 16; pass "default" to avoid the deprecation warning.
+function invalidateFees() {
+  (revalidateTag as (tag: string, profile: string) => void)("fees", "default");
+}
 
 export async function GET(req: NextRequest) {
   const srNo = req.nextUrl.searchParams.get("srNo");
@@ -50,7 +55,7 @@ export async function POST(req: NextRequest) {
       amount,
     });
 
-    revalidatePath("/fees"); revalidatePath("/dashboard"); revalidatePath("/pending");
+    invalidateFees();
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("daily entry error:", err);
@@ -80,13 +85,13 @@ export async function DELETE(req: NextRequest) {
     }
 
     const remaining = await getDailyEntriesForStudent(srNo);
-    const amounts = remaining
+    const payments = remaining
       .sort((a, b) => a.date.localeCompare(b.date))
-      .map((e) => e.amount);
+      .map((e) => ({ date: e.date, amount: e.amount }));
 
-    await recalculateStudentFees(feeRecord.sheetRow, feeRecord.totalFee, amounts);
+    await recalculateStudentFees(feeRecord.sheetRow, feeRecord.totalFee, payments);
 
-    revalidatePath("/fees"); revalidatePath("/dashboard"); revalidatePath("/pending");
+    invalidateFees();
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("delete entry error:", err);
@@ -109,23 +114,21 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "entryId, newAmount > 0, studentName, and srNo are required" }, { status: 400 });
     }
 
-    // Update the Daily Log row first
     await updateDailyEntry(entryId, newAmount);
 
-    // Fetch fresh fee record and all entries, then recalculate from scratch
     const feeRecord = await getFeeByName(studentName);
     if (!feeRecord) {
       return NextResponse.json({ error: "Student not found" }, { status: 404 });
     }
 
     const allEntries = await getDailyEntriesForStudent(srNo);
-    const amounts = allEntries
+    const payments = allEntries
       .sort((a, b) => a.date.localeCompare(b.date))
-      .map((e) => e.amount);
+      .map((e) => ({ date: e.date, amount: e.amount }));
 
-    await recalculateStudentFees(feeRecord.sheetRow, feeRecord.totalFee, amounts);
+    await recalculateStudentFees(feeRecord.sheetRow, feeRecord.totalFee, payments);
 
-    revalidatePath("/fees"); revalidatePath("/dashboard"); revalidatePath("/pending");
+    invalidateFees();
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("edit entry error:", err);

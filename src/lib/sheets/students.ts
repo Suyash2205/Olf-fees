@@ -43,7 +43,10 @@ async function _getAllStudents(): Promise<Student[]> {
     .filter(Boolean) as Student[];
 }
 
-export const getAllStudents = unstable_cache(_getAllStudents, ["all-students"], { revalidate: 60 });
+export const getAllStudents = unstable_cache(_getAllStudents, ["all-students"], {
+  revalidate: 60,
+  tags: ["students"],
+});
 
 export async function getStudentByName(name: string): Promise<Student | null> {
   const students = await getAllStudents();

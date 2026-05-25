@@ -25,7 +25,7 @@ Open **both** Google Sheets and click Share:
 
 Your sheets:
 - Students: https://docs.google.com/spreadsheets/d/1S8KjoBfO3yPmvZom7v3BFP890iKF-uPQeq0_R3_F4Zg
-- Fees: https://docs.google.com/spreadsheets/d/1UPOAYn9uUilTwbf5pPChFjvbmJlCgKN1PDGLAcKqevs
+- Fees (2026-27): https://docs.google.com/spreadsheets/d/1nO5Bu6kfR2PByldEE5KvjuPal-gzmpdSMD-g8Z1IlEo
 
 ## Step 3: Configure Environment
 

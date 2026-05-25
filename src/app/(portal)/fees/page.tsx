@@ -1,39 +1,16 @@
-import { getAllFees } from "@/lib/sheets/fees";
+import { Suspense } from "react";
 import FeesTable from "./FeesTable";
 
-export const dynamic = "force-dynamic";
-
-export default async function FeesPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ student?: string }>;
-}) {
-  const { student } = await searchParams;
-  let fees: Awaited<ReturnType<typeof getAllFees>> = [];
-  let error: string | null = null;
-
-  try {
-    fees = await getAllFees();
-  } catch (e) {
-    error = e instanceof Error ? e.message : "Failed to load fees";
-  }
-
+export default function FeesPage() {
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-slate-800">Fees</h1>
-        <p className="text-sm text-slate-500 mt-1">
-          {fees.length} students · use Daily Entry to record payments
-        </p>
+        <p className="text-sm text-slate-500 mt-1">Use Daily Entry to record payments</p>
       </div>
-
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">
-          {error}
-        </div>
-      )}
-
-      <FeesTable fees={fees} highlightStudent={student} />
+      <Suspense>
+        <FeesTable />
+      </Suspense>
     </div>
   );
 }

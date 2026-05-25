@@ -14,10 +14,14 @@ import {
   RefreshCw,
   LogOut,
   ClipboardList,
+  UserPlus,
+  Database,
 } from "lucide-react";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/admissions", label: "Admissions", icon: UserPlus },
+  { href: "/udise", label: "UDISE", icon: Database },
   { href: "/students", label: "Students", icon: Users },
   { href: "/fees", label: "Fees", icon: IndianRupee },
   { href: "/daily-entry", label: "Daily Entry", icon: ClipboardList },

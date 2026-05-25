@@ -1,23 +1,7 @@
-import { getAllFees } from "@/lib/sheets/fees";
+import { Suspense } from "react";
 import DailyEntryForm from "./DailyEntryForm";
 
-export const dynamic = "force-dynamic";
-
-export default async function DailyEntryPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ student?: string }>;
-}) {
-  const { student } = await searchParams;
-  let fees: Awaited<ReturnType<typeof getAllFees>> = [];
-  let error: string | null = null;
-
-  try {
-    fees = await getAllFees();
-  } catch (e) {
-    error = e instanceof Error ? e.message : "Failed to load students";
-  }
-
+export default function DailyEntryPage() {
   return (
     <div className="space-y-6">
       <div>
@@ -26,14 +10,9 @@ export default async function DailyEntryPage({
           Record individual fee payments — each entry is logged with date and amount, and synced to Google Sheets
         </p>
       </div>
-
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">
-          {error}
-        </div>
-      )}
-
-      <DailyEntryForm fees={fees} initialStudentName={student} />
+      <Suspense>
+        <DailyEntryForm />
+      </Suspense>
     </div>
   );
 }

@@ -1,20 +1,15 @@
 import Link from "next/link";
 import { UserPlus } from "lucide-react";
-import StudentsTable from "./StudentsTable";
-import PromotionPanel from "./PromotionPanel";
+import AdmissionsList from "./AdmissionsList";
 
-export default function StudentsPage() {
+export default function AdmissionsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Students</h1>
+          <h1 className="text-2xl font-bold text-slate-800">Admissions</h1>
           <p className="text-sm text-slate-500 mt-1">
-            Promote or demote classes ·{" "}
-            <Link href="/admissions/new" className="text-blue-600 hover:underline">
-              new admissions
-            </Link>{" "}
-            use the Admissions page
+            Full student records · synced to Admissions tab on the fees spreadsheet
           </p>
         </div>
         <Link
@@ -25,8 +20,7 @@ export default function StudentsPage() {
           New admission
         </Link>
       </div>
-      <PromotionPanel />
-      <StudentsTable />
+      <AdmissionsList />
     </div>
   );
 }
