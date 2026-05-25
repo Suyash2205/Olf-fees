@@ -98,6 +98,13 @@ export function parseGrNoFromNotes(notes: string): string | null {
   return m ? m[1] : null;
 }
 
+/** Keep STATUS / other note text; set or replace GR number. */
+export function upsertGrInNotes(notes: string, grNo: string): string {
+  const base = notes.replace(/GR:\s*GR-\d{4}-\d+/gi, "").trim();
+  const grPart = `GR: ${grNo}`;
+  return base ? `${base} ${grPart}` : grPart;
+}
+
 /** Split fee-sheet full name into form fields (First Father Surname). */
 export function splitFullNameToForm(fullName: string): Pick<
   AdmissionFormValues,

@@ -1,3 +1,4 @@
+import AdminAdmissionBackfill from "@/components/admin/AdminAdmissionBackfill";
 import AdminGate from "@/components/admin/AdminGate";
 import AdminIndividualPromotion from "@/components/admin/AdminIndividualPromotion";
 import AdminStudentManagement from "@/components/admin/AdminStudentManagement";
@@ -14,6 +15,7 @@ export default function AdminPage() {
       </div>
       <AdminGate>
         <div className="space-y-6">
+          <AdminAdmissionBackfill />
           <PromotionPanel />
           <AdminIndividualPromotion />
           <AdminStudentManagement />

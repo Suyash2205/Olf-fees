@@ -1,10 +1,11 @@
 import { parseGrNoFromNotes } from "@/lib/admission-form";
 import { normalizeStudentName } from "@/lib/admission-utils";
 import { isActiveStatus } from "@/lib/student-status";
-import { readAllAdmissionsFromSheet } from "./admissions";
+import { readAllAdmissionsFromSheet, type AdmissionRecord } from "./admissions";
 
-export async function getInactiveStudentKeys(): Promise<Set<string>> {
-  const admissions = await readAllAdmissionsFromSheet();
+export function buildInactiveKeysFromAdmissions(
+  admissions: AdmissionRecord[]
+): Set<string> {
   const keys = new Set<string>();
   for (const a of admissions) {
     if (isActiveStatus(a.status)) continue;
@@ -12,6 +13,11 @@ export async function getInactiveStudentKeys(): Promise<Set<string>> {
     if (a.grNo) keys.add(a.grNo.toLowerCase());
   }
   return keys;
+}
+
+export async function getInactiveStudentKeys(): Promise<Set<string>> {
+  const admissions = await readAllAdmissionsFromSheet();
+  return buildInactiveKeysFromAdmissions(admissions);
 }
 
 export function feeRecordIsInactive(

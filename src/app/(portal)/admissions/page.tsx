@@ -9,7 +9,9 @@ export default function AdmissionsPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Admissions</h1>
           <p className="text-sm text-slate-500 mt-1">
-            Full student records · synced to Admissions tab on the fees spreadsheet
+            Full student records · synced to Admissions tab on the fees spreadsheet.
+            Use <strong>New admission</strong> only for brand-new students; existing students
+            were added via Admin setup.
           </p>
         </div>
         <Link

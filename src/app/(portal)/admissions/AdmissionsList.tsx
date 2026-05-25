@@ -129,7 +129,7 @@ export default function AdmissionsList() {
                             : "bg-emerald-50 text-emerald-700"
                         }`}
                       >
-                        {r.status || "Active"}
+                        {r.status === "Incomplete" ? "Needs details" : r.status || "Active"}
                       </span>
                     </td>
                     <td className="px-4 py-3">

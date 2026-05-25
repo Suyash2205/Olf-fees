@@ -246,7 +246,10 @@ function admissionToRow(record: AdmissionRecord | (AdmissionInput & { grNo: stri
   return row;
 }
 
+let admissionsSheetEnsured = false;
+
 export async function ensureAdmissionsSheet(): Promise<void> {
+  if (admissionsSheetEnsured) return;
   const sheets = getSheetsClient();
   const meta = await sheets.spreadsheets.get({ spreadsheetId: FEES_SHEET_ID });
   const exists = meta.data.sheets?.some((s) => s.properties?.title === ADMISSIONS_SHEET);
@@ -274,6 +277,7 @@ export async function ensureAdmissionsSheet(): Promise<void> {
       requestBody: { values: [[...ADMISSION_HEADERS]] },
     });
   }
+  admissionsSheetEnsured = true;
 }
 
 export async function readAllAdmissionsFromSheet(): Promise<AdmissionRecord[]> {
@@ -341,6 +345,39 @@ export async function updateAdmission(record: AdmissionRecord): Promise<void> {
     valueInputOption: "USER_ENTERED",
     requestBody: { values: [row] },
   });
+}
+
+const ADMISSION_APPEND_CHUNK = 40;
+
+/** Append many admission rows in chunked Sheets requests (avoids timeouts). */
+export async function appendAdmissionsBatch(
+  inputs: (AdmissionInput & { annualFee: number; discount: number; grNo: string })[]
+): Promise<AdmissionRecord[]> {
+  if (inputs.length === 0) return [];
+  await ensureAdmissionsSheet();
+  const sheets = getSheetsClient();
+  const createdAt = new Date().toISOString();
+  const records: AdmissionRecord[] = inputs.map((input) => ({
+    ...input,
+    fullName: input.fullName ?? buildFullName(input),
+    status: input.status ?? "Active",
+    createdAt,
+    sheetRow: 0,
+  }));
+
+  const endCol = colLetter(ADMISSION_HEADERS.length - 1);
+  for (let i = 0; i < records.length; i += ADMISSION_APPEND_CHUNK) {
+    const chunk = records.slice(i, i + ADMISSION_APPEND_CHUNK);
+    const rows = chunk.map((r) => admissionToRow(r));
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: FEES_SHEET_ID,
+      range: `${ADMISSIONS_SHEET}!A:${endCol}`,
+      valueInputOption: "USER_ENTERED",
+      insertDataOption: "INSERT_ROWS",
+      requestBody: { values: rows },
+    });
+  }
+  return records;
 }
 
 export async function addAdmission(
