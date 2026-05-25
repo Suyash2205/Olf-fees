@@ -9,6 +9,8 @@ import {
 import type { FeeRecord } from "@/lib/sheets/fees";
 import { gradeChartRows } from "@/lib/sort-by-grade";
 import { canonicalClassLabel } from "@/lib/fees/structure";
+import { usePortalRefresh } from "@/lib/use-portal-refresh";
+import { feesListUrl, portalFetch } from "@/lib/portal-fetch";
 
 function fmt(n: number) {
   return new Intl.NumberFormat("en-IN", {
@@ -27,7 +29,7 @@ export default function DashboardClient() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/fees");
+      const res = await portalFetch(feesListUrl(true));
       if (!res.ok) throw new Error(`Server error ${res.status}`);
       const data: FeeRecord[] = await res.json();
       setFees(data);
@@ -38,7 +40,10 @@ export default function DashboardClient() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
+  usePortalRefresh(load);
 
   if (loading) {
     return (

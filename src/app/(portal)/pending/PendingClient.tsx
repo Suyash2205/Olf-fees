@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { AlertCircle, ArrowUpRight, RefreshCw } from "lucide-react";
 import type { PendingFeeSummary } from "@/lib/sheets/fees";
+import { usePortalRefresh } from "@/lib/use-portal-refresh";
+import { feesListUrl, portalFetch } from "@/lib/portal-fetch";
 import { compareByGradeThenName } from "@/lib/sort-by-grade";
 
 function fmt(n: number) {
@@ -23,7 +25,7 @@ export default function PendingClient() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/fees");
+      const res = await portalFetch(feesListUrl(true));
       if (!res.ok) throw new Error(`Server error ${res.status}`);
       const fees = await res.json();
       const result: PendingFeeSummary[] = fees
@@ -55,7 +57,10 @@ export default function PendingClient() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
+  usePortalRefresh(load);
 
   if (loading) {
     return (

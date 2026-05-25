@@ -11,8 +11,19 @@ import {
   ArrowUp,
   ArrowDown,
   Loader2,
+  UserCircle,
 } from "lucide-react";
-import type { Student } from "@/lib/sheets/students";
+
+type StudentRow = {
+  name: string;
+  className: string;
+  fees: string;
+  sheetRow: number;
+  grNo: string | null;
+  hasProfile: boolean;
+};
+import { usePortalRefresh } from "@/lib/use-portal-refresh";
+import { portalFetch } from "@/lib/portal-fetch";
 import { sortByGradeThenName, sortClassNames } from "@/lib/sort-by-grade";
 
 function isPassOut(name: string, className: string): boolean {
@@ -21,7 +32,7 @@ function isPassOut(name: string, className: string): boolean {
 
 export default function StudentsTable() {
   const router = useRouter();
-  const [students, setStudents] = useState<Student[]>([]);
+  const [students, setStudents] = useState<StudentRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -32,9 +43,9 @@ export default function StudentsTable() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/students");
+      const res = await portalFetch("/api/students");
       if (!res.ok) throw new Error(`Server error ${res.status}`);
-      const data: Student[] = await res.json();
+      const data: StudentRow[] = await res.json();
       setStudents(data);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load students");
@@ -46,6 +57,7 @@ export default function StudentsTable() {
   useEffect(() => {
     load();
   }, [load]);
+  usePortalRefresh(load);
 
   useEffect(() => {
     const onRefresh = () => load();
@@ -63,7 +75,7 @@ export default function StudentsTable() {
 
     setRowBusy(sheetRow);
     try {
-      const res = await fetch("/api/promotion", {
+      const res = await portalFetch("/api/promotion", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, sheetRow }),
@@ -172,6 +184,9 @@ export default function StudentsTable() {
               <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">
                 Class change
               </th>
+              <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                Profile
+              </th>
               <th className="px-4 py-3 w-8" />
               <th className="px-4 py-3 w-8" />
             </tr>
@@ -179,7 +194,7 @@ export default function StudentsTable() {
           <tbody className="divide-y divide-slate-50">
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-12 text-center text-slate-400">
+                <td colSpan={8} className="px-4 py-12 text-center text-slate-400">
                   No students found
                 </td>
               </tr>
@@ -230,6 +245,27 @@ export default function StudentsTable() {
                           </>
                         )}
                       </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      {s.hasProfile && s.grNo ? (
+                        <Link
+                          href={`/admissions/${encodeURIComponent(s.grNo)}`}
+                          className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline"
+                          title="View full profile"
+                        >
+                          <UserCircle className="w-4 h-4" />
+                          View
+                        </Link>
+                      ) : (
+                        <Link
+                          href={`/admissions/complete?student=${encodeURIComponent(s.name)}`}
+                          className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 hover:underline"
+                          title="Add full admission details"
+                        >
+                          <UserCircle className="w-4 h-4" />
+                          Add info
+                        </Link>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <Link

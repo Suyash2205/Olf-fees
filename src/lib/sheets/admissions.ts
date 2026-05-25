@@ -1,4 +1,3 @@
-import { unstable_cache } from "next/cache";
 import { buildFullName } from "@/lib/admission-utils";
 import { sortByGradeThenName } from "@/lib/sort-by-grade";
 import { getSheetsClient, FEES_SHEET_ID } from "./client";
@@ -277,7 +276,7 @@ export async function ensureAdmissionsSheet(): Promise<void> {
   }
 }
 
-async function _fetchAllAdmissions(): Promise<AdmissionRecord[]> {
+export async function readAllAdmissionsFromSheet(): Promise<AdmissionRecord[]> {
   await ensureAdmissionsSheet();
   const sheets = getSheetsClient();
   const endCol = colLetter(ADMISSION_HEADERS.length - 1);
@@ -298,22 +297,16 @@ async function _fetchAllAdmissions(): Promise<AdmissionRecord[]> {
   );
 }
 
-export const getAllAdmissions = unstable_cache(
-  _fetchAllAdmissions,
-  ["all-admissions", process.env.FEES_SHEET_ID ?? ""],
-  {
-    revalidate: 60,
-    tags: ["admissions"],
-  }
-);
+/** Always reads live from Google Sheets (no server cache). */
+export const getAllAdmissions = readAllAdmissionsFromSheet;
 
 export async function getAdmissionByGrNo(grNo: string): Promise<AdmissionRecord | null> {
-  const all = await _fetchAllAdmissions();
+  const all = await readAllAdmissionsFromSheet();
   return all.find((a) => a.grNo === grNo) ?? null;
 }
 
 export async function generateGrNo(): Promise<string> {
-  const all = await _fetchAllAdmissions();
+  const all = await readAllAdmissionsFromSheet();
   const year = new Date().getFullYear();
   const prefix = `GR-${year}-`;
   const nums = all
@@ -323,6 +316,31 @@ export async function generateGrNo(): Promise<string> {
     .filter((n) => !isNaN(n));
   const next = (nums.length ? Math.max(...nums) : 0) + 1;
   return `${prefix}${String(next).padStart(4, "0")}`;
+}
+
+export async function getAdmissionByStudentName(
+  studentName: string
+): Promise<AdmissionRecord | null> {
+  const all = await readAllAdmissionsFromSheet();
+  const norm = studentName.trim().toLowerCase().replace(/\s+/g, " ");
+  return (
+    all.find((a) => a.fullName.trim().toLowerCase().replace(/\s+/g, " ") === norm) ??
+    null
+  );
+}
+
+export async function updateAdmission(record: AdmissionRecord): Promise<void> {
+  if (!record.sheetRow) throw new Error("Missing sheet row for update");
+  await ensureAdmissionsSheet();
+  const sheets = getSheetsClient();
+  const endCol = colLetter(ADMISSION_HEADERS.length - 1);
+  const row = admissionToRow(record);
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: FEES_SHEET_ID,
+    range: `${ADMISSIONS_SHEET}!A${record.sheetRow}:${endCol}${record.sheetRow}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [row] },
+  });
 }
 
 export async function addAdmission(

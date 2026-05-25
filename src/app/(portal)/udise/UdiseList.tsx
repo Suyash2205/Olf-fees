@@ -4,6 +4,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { Search, RefreshCw, ChevronDown, ChevronRight } from "lucide-react";
 import type { UdiseRecord } from "@/lib/udise/record";
 import { udiseDetailFields, udiseRowKey } from "@/lib/udise/record";
+import { portalFetch } from "@/lib/portal-fetch";
 
 function cell(v: string) {
   if (!v || v === "NA") return <span className="text-slate-300">—</span>;
@@ -21,7 +22,7 @@ export default function UdiseList() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/udise");
+      const res = await portalFetch("/api/udise");
       if (!res.ok) throw new Error(`Error ${res.status}`);
       setRows(await res.json());
     } catch (e) {

@@ -5,6 +5,8 @@ import Link from "next/link";
 import { GraduationCap, Users, IndianRupee, AlertCircle, RefreshCw } from "lucide-react";
 import type { FeeRecord } from "@/lib/sheets/fees";
 import { canonicalClassLabel } from "@/lib/fees/structure";
+import { usePortalRefresh } from "@/lib/use-portal-refresh";
+import { feesListUrl, portalFetch } from "@/lib/portal-fetch";
 import { classSortIndex } from "@/lib/sort-by-grade";
 
 function fmt(n: number) {
@@ -24,7 +26,7 @@ export default function ClassesClient() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/fees");
+      const res = await portalFetch(feesListUrl(true));
       if (!res.ok) throw new Error(`Server error ${res.status}`);
       const data: FeeRecord[] = await res.json();
       setFees(data);
@@ -35,7 +37,10 @@ export default function ClassesClient() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
+  usePortalRefresh(load);
 
   if (loading) {
     return (

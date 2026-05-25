@@ -1,28 +1,42 @@
 import { NextRequest, NextResponse } from "next/server";
-import { revalidateTag } from "next/cache";
 import {
   computeFeeBreakdown,
   type DiscountType,
 } from "@/lib/fees/structure";
-import { addStudent } from "@/lib/sheets/students";
-import { addFeeRecord, getAllFees } from "@/lib/sheets/fees";
-
-function invalidateAll() {
-  const rt = revalidateTag as (tag: string, profile: string) => void;
-  rt("fees", "default");
-  rt("students", "default");
-}
+import { parseGrNoFromNotes } from "@/lib/admission-form";
+import { normalizeStudentName } from "@/lib/admission-utils";
+import {
+  registerStudentFromAdmission,
+  syncMissingAdmissionFees,
+} from "@/lib/sheets/admission-sync";
+import { getAllAdmissions } from "@/lib/sheets/admissions";
+import { getAllFees } from "@/lib/sheets/fees";
+import { invalidatePortalCache } from "@/lib/sheets/invalidate-portal-cache";
 
 // Derive student list from fee records — avoids a separate slow Sheets API call.
 export async function GET() {
   try {
-    const fees = await getAllFees();
-    const students = fees.map((f) => ({
-      name: f.studentName,
-      className: f.className,
-      fees: f.totalFee > 0 ? `₹${f.totalFee.toLocaleString("en-IN")}` : "",
-      sheetRow: f.sheetRow,
-    }));
+    const synced = await syncMissingAdmissionFees();
+    if (synced > 0) invalidatePortalCache();
+    const [fees, admissions] = await Promise.all([getAllFees(), getAllAdmissions()]);
+    const grByName = new Map(
+      admissions.map((a) => [normalizeStudentName(a.fullName), a.grNo])
+    );
+
+    const students = fees.map((f) => {
+      const grNo =
+        grByName.get(normalizeStudentName(f.studentName)) ??
+        parseGrNoFromNotes(f.notes) ??
+        null;
+      return {
+        name: f.studentName,
+        className: f.className,
+        fees: f.totalFee > 0 ? `₹${f.totalFee.toLocaleString("en-IN")}` : "",
+        sheetRow: f.sheetRow,
+        grNo,
+        hasProfile: Boolean(grNo),
+      };
+    });
     return NextResponse.json(students);
   } catch (err) {
     return NextResponse.json(
@@ -58,22 +72,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid total fee" }, { status: 400 });
     }
 
-    const fees = await getAllFees();
-    const maxSr = fees.reduce((max, f) => Math.max(max, Number(f.srNo) || 0), 0);
-    const srNo = String(maxSr + 1);
+    const { srNo } = await registerStudentFromAdmission({
+      fullName: name,
+      standard: className,
+      annualFee: totalFee,
+      discountAmount: breakdown.discountAmount,
+      grNo: "",
+    });
 
-    await Promise.all([
-      addStudent(name, className),
-      addFeeRecord({
-        srNo,
-        studentName: name,
-        className,
-        totalFee,
-        discountAmount: breakdown.discountAmount,
-      }),
-    ]);
-
-    invalidateAll();
+    invalidatePortalCache();
     return NextResponse.json({ ok: true, srNo });
   } catch (err) {
     console.error("add student error:", err);

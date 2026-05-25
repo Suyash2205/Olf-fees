@@ -17,10 +17,12 @@
 ## On save
 
 1. Row appended to **Admissions** with all form fields + auto **Gr No** (`GR-2026-0001`, …)
-2. Row appended to **Fee details** (name, class, annual fee, discount)
+2. Row appended to **Fee details** (name, class, annual fee, discount, balance, `GR: …` in notes)
 3. Short row on **Correct Student name** (backward compatible)
 
-Fees are linked to the profile by **full name** (must match between sheets).
+Opening **Fees**, **Students**, **Dashboard**, or other lists also syncs any Admissions rows that were added manually in the sheet but missing from Fee details.
+
+Fees are linked by **full name** (`FirstName FatherName Surname`, same as Fee details).
 
 ## Gr No
 

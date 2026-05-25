@@ -5,6 +5,7 @@ import {
   resolveClass,
 } from "@/lib/fees/structure";
 import { getSheetsClient, FEES_SHEET_ID } from "./client";
+import { sortPortalStudentSheets } from "./sort-sheets";
 import type { FeeRecord } from "./fees";
 
 export { CLASS_LADDER };
@@ -207,6 +208,7 @@ async function applyChanges(changes: PromotionChange[]): Promise<void> {
       },
     });
   }
+  await sortPortalStudentSheets();
 }
 
 function applyToRecord(

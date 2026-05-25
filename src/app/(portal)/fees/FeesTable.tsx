@@ -1,9 +1,13 @@
 "use client";
 
 import { useState, useMemo, useEffect, useCallback } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Search, RefreshCw, Percent } from "lucide-react";
 import type { FeeRecord } from "@/lib/sheets/fees";
+import { parseGrNoFromNotes } from "@/lib/admission-form";
+import { usePortalRefresh } from "@/lib/use-portal-refresh";
+import { feesListUrl, portalFetch } from "@/lib/portal-fetch";
 import { sortByGradeThenName, sortClassNames } from "@/lib/sort-by-grade";
 import FeeDiscountModal from "./FeeDiscountModal";
 
@@ -31,11 +35,11 @@ export default function FeesTable() {
   const [classFilter, setClassFilter] = useState("all");
   const [discountFor, setDiscountFor] = useState<FeeRecord | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (reorderSheet = false) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/fees");
+      const res = await portalFetch(feesListUrl(reorderSheet));
       if (!res.ok) throw new Error(`Server error ${res.status}`);
       const data: FeeRecord[] = await res.json();
       setFees(data);
@@ -46,7 +50,10 @@ export default function FeesTable() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
+  usePortalRefresh(load);
 
   const classes = useMemo(
     () => ["all", ...sortClassNames(new Set(fees.map((f) => f.className).filter(Boolean)))],
@@ -80,7 +87,7 @@ export default function FeesTable() {
     return (
       <div className="bg-white rounded-xl border border-slate-200 p-12 flex flex-col items-center gap-3 text-center">
         <p className="text-sm text-red-600">{error}</p>
-        <button onClick={load} className="text-sm px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+        <button onClick={() => load(true)} className="text-sm px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
           Retry
         </button>
       </div>
@@ -112,6 +119,16 @@ export default function FeesTable() {
           ))}
         </select>
         <span className="text-sm text-slate-400 self-center">{filtered.length} students</span>
+        <button
+          type="button"
+          onClick={() => load(true)}
+          disabled={loading}
+          title="Reload and reorder the Google Sheet by class (Pass out last)"
+          className="flex items-center gap-1.5 text-sm px-3 py-2 border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+        >
+          <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+          Sort sheet
+        </button>
       </div>
 
       <div className="overflow-x-auto scrollbar-thin">
@@ -143,7 +160,18 @@ export default function FeesTable() {
                 return (
                   <tr key={f.sheetRow} className="hover:bg-slate-50">
                     <td className="px-4 py-2.5 text-xs text-slate-400">{f.srNo}</td>
-                    <td className="px-4 py-2.5 font-medium text-slate-800 sticky left-0 bg-white">{f.studentName}</td>
+                    <td className="px-4 py-2.5 font-medium text-slate-800 sticky left-0 bg-white">
+                      <Link
+                        href={
+                          parseGrNoFromNotes(f.notes)
+                            ? `/admissions/${encodeURIComponent(parseGrNoFromNotes(f.notes)!)}`
+                            : `/admissions/complete?student=${encodeURIComponent(f.studentName)}`
+                        }
+                        className="hover:text-blue-600 hover:underline"
+                      >
+                        {f.studentName}
+                      </Link>
+                    </td>
                     <td className="px-4 py-2.5 text-slate-500">{f.className || "—"}</td>
                     <td className="px-4 py-2.5 text-slate-600">{fmt(f.totalFee)}</td>
                     <td className="px-4 py-2.5">

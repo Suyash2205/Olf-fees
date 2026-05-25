@@ -1,4 +1,3 @@
-import { unstable_cache } from "next/cache";
 import type { UdiseRecord } from "@/lib/udise/record";
 import { getSheetsClient, FEES_SHEET_ID } from "./client";
 
@@ -172,10 +171,8 @@ async function _fetchAllUdise(): Promise<UdiseRecord[]> {
   return records.sort(compareUdiseRecords);
 }
 
-export const getAllUdise = unstable_cache(_fetchAllUdise, ["all-udise", process.env.FEES_SHEET_ID ?? ""], {
-  revalidate: 60,
-  tags: ["udise"],
-});
+/** Always reads live from Google Sheets (no server cache). */
+export const getAllUdise = _fetchAllUdise;
 
 export async function replaceAllUdiseRows(records: UdiseRecord[]): Promise<number> {
   await ensureUdiseSheet();

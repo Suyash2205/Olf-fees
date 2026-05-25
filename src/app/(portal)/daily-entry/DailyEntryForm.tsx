@@ -16,6 +16,8 @@ import {
   RefreshCw,
 } from "lucide-react";
 import type { FeeRecord } from "@/lib/sheets/fees";
+import { usePortalRefresh } from "@/lib/use-portal-refresh";
+import { feesListUrl, portalFetch } from "@/lib/portal-fetch";
 import { sortByGradeThenName } from "@/lib/sort-by-grade";
 import type { DailyEntry } from "@/lib/sheets/dailyLog";
 
@@ -46,7 +48,7 @@ export default function DailyEntryForm() {
     setFeesLoading(true);
     setFeesError(null);
     try {
-      const res = await fetch("/api/fees");
+      const res = await portalFetch(feesListUrl(true));
       if (!res.ok) throw new Error(`Server error ${res.status}`);
       const data: FeeRecord[] = await res.json();
       setFees(data);
@@ -57,7 +59,10 @@ export default function DailyEntryForm() {
     }
   }, []);
 
-  useEffect(() => { loadFees(); }, [loadFees]);
+  useEffect(() => {
+    loadFees();
+  }, [loadFees]);
+  usePortalRefresh(loadFees);
 
   // Pre-select student once fees load
   const initialSelected = useMemo(() => {
@@ -128,7 +133,7 @@ export default function DailyEntryForm() {
   useEffect(() => {
     if (!selectedFee) { setEntries([]); return; }
     setLoadingEntries(true);
-    fetch(`/api/daily-entry?srNo=${encodeURIComponent(selectedFee.srNo)}`)
+    portalFetch(`/api/daily-entry?srNo=${encodeURIComponent(selectedFee.srNo)}`)
       .then((r) => r.json())
       .then((data) => setEntries(Array.isArray(data) ? data : []))
       .catch(() => setEntries([]))
@@ -150,7 +155,7 @@ export default function DailyEntryForm() {
 
   async function refreshStudentFee(studentName: string) {
     try {
-      const res = await fetch(`/api/fees?name=${encodeURIComponent(studentName)}`);
+      const res = await portalFetch(`/api/fees?name=${encodeURIComponent(studentName)}`);
       if (!res.ok) return;
       const fresh: FeeRecord = await res.json();
       if (!fresh?.srNo) return;
@@ -161,7 +166,7 @@ export default function DailyEntryForm() {
 
   async function refreshEntries(srNo: string) {
     try {
-      const res = await fetch(`/api/daily-entry?srNo=${encodeURIComponent(srNo)}`);
+      const res = await portalFetch(`/api/daily-entry?srNo=${encodeURIComponent(srNo)}`);
       const data = await res.json();
       if (Array.isArray(data)) setEntries(data);
     } catch { /* silent */ }
@@ -177,7 +182,7 @@ export default function DailyEntryForm() {
     setError(null);
     setSuccess(false);
     try {
-      const res = await fetch("/api/daily-entry", {
+      const res = await portalFetch("/api/daily-entry", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ studentName: selectedFee.studentName, date, amount: Number(amount) }),
@@ -201,7 +206,7 @@ export default function DailyEntryForm() {
   async function handleDelete(entry: DailyEntry) {
     setDeleting(true);
     try {
-      const res = await fetch("/api/daily-entry", {
+      const res = await portalFetch("/api/daily-entry", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ entryId: entry.id, studentName: entry.studentName, srNo: entry.srNo }),
@@ -224,7 +229,7 @@ export default function DailyEntryForm() {
     if (!newAmt || newAmt <= 0) return;
     setEditSaving(true);
     try {
-      const res = await fetch("/api/daily-entry", {
+      const res = await portalFetch("/api/daily-entry", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ entryId: entry.id, newAmount: newAmt, studentName: entry.studentName, srNo: entry.srNo }),

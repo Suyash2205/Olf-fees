@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, IndianRupee, ClipboardList, RefreshCw } from "lucide-react";
+import { ArrowLeft, IndianRupee, ClipboardList, RefreshCw, Pencil } from "lucide-react";
 import type { AdmissionRecord } from "@/lib/sheets/admissions";
 import type { FeeRecord } from "@/lib/sheets/fees";
 import { formatINR, splitIntoQuarters } from "@/lib/fees/structure";
+import { portalFetch } from "@/lib/portal-fetch";
 
 function Detail({ label, value }: { label: string; value?: string | number }) {
   if (!value && value !== 0) return null;
@@ -36,7 +37,7 @@ export default function AdmissionProfile({ grNo }: { grNo: string }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/admissions/${encodeURIComponent(grNo)}`);
+      const res = await portalFetch(`/api/admissions/${encodeURIComponent(grNo)}`);
       if (!res.ok) {
         const d = await res.json();
         throw new Error(d.error ?? `Error ${res.status}`);
@@ -94,7 +95,14 @@ export default function AdmissionProfile({ grNo }: { grNo: string }) {
             </p>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href={`/admissions/${encodeURIComponent(admission.grNo)}/edit`}
+            className="inline-flex items-center gap-2 px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            <Pencil className="w-4 h-4" />
+            Edit details
+          </Link>
           {fee && (
             <>
               <Link

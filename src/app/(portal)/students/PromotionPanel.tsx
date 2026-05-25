@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowUpCircle, ArrowDownCircle, Loader2 } from "lucide-react";
+import { portalFetch } from "@/lib/portal-fetch";
 
 type BulkAction = "promote-all" | "demote-all";
 
@@ -23,7 +24,7 @@ export default function PromotionPanel() {
     setBusy(action);
     setMessage(null);
     try {
-      const res = await fetch("/api/promotion", {
+      const res = await portalFetch("/api/promotion", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action }),
@@ -40,6 +41,7 @@ export default function PromotionPanel() {
         text: `Updated ${data.updated} student(s). Skipped ${data.skipped}.${errNote}`,
       });
       window.dispatchEvent(new Event("students-refresh"));
+      window.dispatchEvent(new Event("portal-data-refresh"));
       router.refresh();
     } catch (e) {
       setMessage({

@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { X, Loader2, Percent } from "lucide-react";
 import type { FeeRecord } from "@/lib/sheets/fees";
 import { applyDiscount, formatINR, getBaseTuition, type DiscountType } from "@/lib/fees/structure";
+import { portalFetch } from "@/lib/portal-fetch";
 
 function resolveBase(record: FeeRecord): number {
   const fromClass = getBaseTuition(record.className);
@@ -47,7 +48,7 @@ export default function FeeDiscountModal({
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch("/api/fees/discount", {
+      const res = await portalFetch("/api/fees/discount", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

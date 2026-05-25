@@ -1,9 +1,10 @@
-import { unstable_cache } from "next/cache";
 import {
   applyDiscount,
   getBaseTuition,
   type DiscountType,
 } from "@/lib/fees/structure";
+import { parseGrNoFromNotes } from "@/lib/admission-form";
+import { normalizeStudentName } from "@/lib/admission-utils";
 import { canonicalClassLabel } from "@/lib/fees/structure";
 import {
   compareByGradeThenName,
@@ -11,6 +12,7 @@ import {
   sortByGradeThenName,
 } from "@/lib/sort-by-grade";
 import { getSheetsClient, FEES_SHEET_ID } from "./client";
+import { sortPortalStudentSheets } from "./sort-sheets";
 
 export interface FeeRecord {
   srNo: string;        // col A — serial number, used as unique ID
@@ -144,7 +146,7 @@ export async function applyFeeDiscount(
   return { baseFee, discountAmount, finalFee };
 }
 
-async function _getAllFees(): Promise<FeeRecord[]> {
+export async function readAllFeesFromSheet(): Promise<FeeRecord[]> {
   const sheets = getSheetsClient();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: FEES_SHEET_ID,
@@ -164,10 +166,8 @@ async function _getAllFees(): Promise<FeeRecord[]> {
   );
 }
 
-export const getAllFees = unstable_cache(_getAllFees, ["all-fees", process.env.FEES_SHEET_ID ?? ""], {
-  revalidate: 60,
-  tags: ["fees"],
-});
+/** Always reads live from Google Sheets (no server cache). */
+export const getAllFees = readAllFeesFromSheet;
 
 export async function getFeeByName(name: string): Promise<FeeRecord | null> {
   const fees = await getAllFees();
@@ -400,30 +400,112 @@ export interface NewFeeRecordInput {
   className: string;
   totalFee: number;
   discountAmount?: number;
+  grNo?: string;
+}
+
+export async function syncFeeFromAdmission(input: {
+  fullName: string;
+  previousName?: string;
+  standard: string;
+  annualFee: number;
+  discountAmount: number;
+  grNo: string;
+}): Promise<void> {
+  const fees = await readAllFeesFromSheet();
+  let fee =
+    fees.find(
+      (f) =>
+        input.previousName &&
+        normalizeStudentName(f.studentName) === normalizeStudentName(input.previousName)
+    ) ?? null;
+  if (!fee && input.grNo) {
+    fee = fees.find((f) => parseGrNoFromNotes(f.notes) === input.grNo) ?? null;
+  }
+  if (!fee) {
+    fee =
+      fees.find(
+        (f) => normalizeStudentName(f.studentName) === normalizeStudentName(input.fullName)
+      ) ?? null;
+  }
+
+  if (!fee) {
+    const maxSr = fees.reduce((m, f) => Math.max(m, Number(f.srNo) || 0), 0);
+    await addFeeRecord({
+      srNo: String(maxSr + 1),
+      studentName: input.fullName,
+      className: input.standard,
+      totalFee: input.annualFee,
+      discountAmount: input.discountAmount,
+      grNo: input.grNo,
+    });
+    return;
+  }
+
+  const balance = Math.max(0, input.annualFee - fee.totalPaid);
+  const sheets = getSheetsClient();
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId: FEES_SHEET_ID,
+    requestBody: {
+      valueInputOption: "USER_ENTERED",
+      data: [
+        {
+          range: `${SHEET_NAME}!${colLetter(COL.name)}${fee.sheetRow}`,
+          values: [[input.fullName]],
+        },
+        {
+          range: `${SHEET_NAME}!${colLetter(COL.class)}${fee.sheetRow}`,
+          values: [[input.standard]],
+        },
+        {
+          range: `${SHEET_NAME}!${colLetter(COL.pendingCol)}${fee.sheetRow}`,
+          values: [[balance]],
+        },
+        {
+          range: `${SHEET_NAME}!${colLetter(COL.totalFee)}${fee.sheetRow}`,
+          values: [[input.annualFee]],
+        },
+        {
+          range: `${SHEET_NAME}!${colLetter(COL.notes)}${fee.sheetRow}`,
+          values: [[input.grNo ? `GR: ${input.grNo}` : fee.notes]],
+        },
+        {
+          range: `${SHEET_NAME}!${colLetter(COL.discount)}${fee.sheetRow}`,
+          values: [[input.discountAmount > 0 ? input.discountAmount : ""]],
+        },
+        {
+          range: `${SHEET_NAME}!${colLetter(COL.balance)}${fee.sheetRow}`,
+          values: [[balance]],
+        },
+      ],
+    },
+  });
+  await sortPortalStudentSheets();
 }
 
 export async function addFeeRecord(input: NewFeeRecordInput): Promise<void> {
-  const { srNo, studentName, className, totalFee, discountAmount = 0 } = input;
+  const { srNo, studentName, className, totalFee, discountAmount = 0, grNo } = input;
   const sheets = getSheetsClient();
-  const pending = totalFee > 0 ? totalFee : 0;
-  // A–H: sr, name, class, pending balance, fees decided, pending %, comments, discount
-  const row = [
-    srNo,
-    studentName,
-    className,
-    pending,
-    totalFee,
-    totalFee > 0 ? "0.00%" : "",
-    "",
-    discountAmount > 0 ? discountAmount : "",
-  ];
+  const balance = totalFee > 0 ? totalFee : 0;
+  const row = new Array(26).fill("");
+  row[COL.srNo] = srNo;
+  row[COL.name] = studentName;
+  row[COL.class] = className;
+  row[COL.pendingCol] = balance;
+  row[COL.totalFee] = totalFee;
+  row[5] = totalFee > 0 ? "0.00%" : "";
+  row[COL.notes] = grNo ? `GR: ${grNo}` : "";
+  row[COL.discount] = discountAmount > 0 ? discountAmount : "";
+  row[COL.totalPaid] = 0;
+  row[COL.balance] = balance;
+
   await sheets.spreadsheets.values.append({
     spreadsheetId: FEES_SHEET_ID,
-    range: `${SHEET_NAME}!A:H`,
+    range: `${SHEET_NAME}!A:Z`,
     valueInputOption: "USER_ENTERED",
     insertDataOption: "INSERT_ROWS",
     requestBody: { values: [row] },
   });
+  await sortPortalStudentSheets();
 }
 
 /** Payment / pending columns to wipe for a fresh academic year (keeps name, class, fees decided). */

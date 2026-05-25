@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Loader2, Save, ArrowLeft } from "lucide-react";
@@ -13,53 +13,26 @@ import {
   type DiscountType,
 } from "@/lib/fees/structure";
 import { buildFullName } from "@/lib/admission-utils";
+import { dispatchPortalRefresh } from "@/lib/portal-refresh";
+import { portalFetch } from "@/lib/portal-fetch";
+import {
+  EMPTY_ADMISSION_FORM,
+  type AdmissionFormValues,
+} from "@/lib/admission-form";
 
 const RESIDES_WITH = ["Father & Mother", "Mother", "Father", "Guardian"];
 const SEX_OPTIONS = ["Male", "Female"];
 
-const EMPTY = {
-  formNo: "",
-  admissionDate: new Date().toISOString().slice(0, 10),
-  medium: "English",
-  photoUrl: "",
-  surname: "",
-  firstName: "",
-  fatherName: "",
-  motherName: "",
-  standard: "",
-  dob: "",
-  placeOfBirth: "",
-  sex: "",
-  state: "",
-  studentContact: "",
-  ageYears: "",
-  ageMonths: "",
-  aadhar: "",
-  religion: "",
-  caste: "",
-  subCaste: "",
-  nationality: "Indian",
-  bloodGroup: "",
-  motherTongue: "",
-  residentialAddress: "",
-  lastSchool: "",
-  reasonLeaving: "",
-  residesWith: "",
-  fatherSurname: "",
-  fatherFirstName: "",
-  fatherMiddleName: "",
-  fatherEducation: "",
-  fatherOccupation: "",
-  fatherContact: "",
-  motherSurname: "",
-  motherFirstName: "",
-  motherMiddleName: "",
-  motherEducation: "",
-  motherOccupation: "",
-  motherContact: "",
-  email: "",
-  discountType: "none" as DiscountType,
-  discountValue: "",
+export type AdmissionFormMode = "new" | "complete" | "edit";
+
+export type AdmissionFormProps = {
+  mode?: AdmissionFormMode;
+  grNo?: string;
+  linkStudentName?: string;
+  initialForm?: AdmissionFormValues;
+  backHref?: string;
+  title?: string;
+  subtitle?: string;
 };
 
 function Field({
@@ -86,14 +59,39 @@ function Field({
 const inputClass =
   "w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
 
-export default function AdmissionForm() {
+export default function AdmissionForm({
+  mode = "new",
+  grNo,
+  linkStudentName = "",
+  initialForm,
+  backHref = "/admissions",
+  title,
+  subtitle,
+}: AdmissionFormProps = {}) {
   const router = useRouter();
-  const [form, setForm] = useState(EMPTY);
+  const [form, setForm] = useState<AdmissionFormValues>(initialForm ?? EMPTY_ADMISSION_FORM);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const set = (key: keyof typeof EMPTY, value: string) =>
+  useEffect(() => {
+    if (initialForm) setForm(initialForm);
+  }, [initialForm]);
+
+  const set = (key: keyof AdmissionFormValues, value: string) =>
     setForm((f) => ({ ...f, [key]: value }));
+
+  const heading =
+    title ??
+    (mode === "edit"
+      ? "Edit student profile"
+      : mode === "complete"
+        ? "Complete student profile"
+        : "New admission");
+  const subheading =
+    subtitle ??
+    (mode === "complete"
+      ? "Adds full details to Admissions tab and links Fee details"
+      : "Saved to Fees spreadsheet · Admissions tab");
 
   const previewName = buildFullName({
     surname: form.surname,
@@ -120,13 +118,28 @@ export default function AdmissionForm() {
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch("/api/admissions", {
-        method: "POST",
+      const payload =
+        mode === "complete"
+          ? { ...form, linkStudentName }
+          : form;
+
+      const url =
+        mode === "edit" && grNo
+          ? `/api/admissions/${encodeURIComponent(grNo)}`
+          : mode === "complete"
+            ? "/api/admissions/complete"
+            : "/api/admissions";
+
+      const method = mode === "edit" ? "PUT" : "POST";
+
+      const res = await portalFetch(url, {
+        method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to save");
+      dispatchPortalRefresh();
       router.push(`/admissions/${encodeURIComponent(data.grNo)}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
@@ -139,14 +152,14 @@ export default function AdmissionForm() {
     <form onSubmit={handleSubmit} className="space-y-8 max-w-4xl">
       <div className="flex items-center gap-3">
         <Link
-          href="/admissions"
+          href={backHref}
           className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50"
         >
           <ArrowLeft className="w-4 h-4" />
         </Link>
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">New admission</h1>
-          <p className="text-sm text-slate-500">Saved to Fees spreadsheet · Admissions tab</p>
+          <h1 className="text-2xl font-bold text-slate-800">{heading}</h1>
+          <p className="text-sm text-slate-500">{subheading}</p>
         </div>
       </div>
 
@@ -348,9 +361,9 @@ export default function AdmissionForm() {
           className="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-60"
         >
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-          Save admission
+          {mode === "edit" ? "Save changes" : mode === "complete" ? "Save profile" : "Save admission"}
         </button>
-        <Link href="/admissions" className="px-6 py-2.5 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50">
+        <Link href={backHref} className="px-6 py-2.5 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50">
           Cancel
         </Link>
       </div>

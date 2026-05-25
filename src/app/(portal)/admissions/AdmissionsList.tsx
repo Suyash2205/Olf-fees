@@ -5,6 +5,8 @@ import Link from "next/link";
 import { Search, RefreshCw, ChevronRight } from "lucide-react";
 import type { AdmissionRecord } from "@/lib/sheets/admissions";
 import { formatINR } from "@/lib/fees/structure";
+import { usePortalRefresh } from "@/lib/use-portal-refresh";
+import { portalFetch } from "@/lib/portal-fetch";
 import { sortByGradeThenName } from "@/lib/sort-by-grade";
 
 export default function AdmissionsList() {
@@ -17,7 +19,7 @@ export default function AdmissionsList() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/admissions");
+      const res = await portalFetch("/api/admissions");
       if (!res.ok) throw new Error(`Error ${res.status}`);
       setRows(await res.json());
     } catch (e) {
@@ -30,6 +32,7 @@ export default function AdmissionsList() {
   useEffect(() => {
     load();
   }, [load]);
+  usePortalRefresh(load);
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase();
