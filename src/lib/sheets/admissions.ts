@@ -298,10 +298,14 @@ async function _fetchAllAdmissions(): Promise<AdmissionRecord[]> {
   );
 }
 
-export const getAllAdmissions = unstable_cache(_fetchAllAdmissions, ["all-admissions"], {
-  revalidate: 60,
-  tags: ["admissions"],
-});
+export const getAllAdmissions = unstable_cache(
+  _fetchAllAdmissions,
+  ["all-admissions", process.env.FEES_SHEET_ID ?? ""],
+  {
+    revalidate: 60,
+    tags: ["admissions"],
+  }
+);
 
 export async function getAdmissionByGrNo(grNo: string): Promise<AdmissionRecord | null> {
   const all = await _fetchAllAdmissions();

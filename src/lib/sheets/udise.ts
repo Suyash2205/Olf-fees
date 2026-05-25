@@ -172,7 +172,7 @@ async function _fetchAllUdise(): Promise<UdiseRecord[]> {
   return records.sort(compareUdiseRecords);
 }
 
-export const getAllUdise = unstable_cache(_fetchAllUdise, ["all-udise"], {
+export const getAllUdise = unstable_cache(_fetchAllUdise, ["all-udise", process.env.FEES_SHEET_ID ?? ""], {
   revalidate: 60,
   tags: ["udise"],
 });

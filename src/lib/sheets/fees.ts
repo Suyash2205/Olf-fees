@@ -164,7 +164,7 @@ async function _getAllFees(): Promise<FeeRecord[]> {
   );
 }
 
-export const getAllFees = unstable_cache(_getAllFees, ["all-fees"], {
+export const getAllFees = unstable_cache(_getAllFees, ["all-fees", process.env.FEES_SHEET_ID ?? ""], {
   revalidate: 60,
   tags: ["fees"],
 });
