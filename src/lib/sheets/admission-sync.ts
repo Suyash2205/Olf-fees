@@ -1,4 +1,5 @@
 import { normalizeStudentName } from "@/lib/admission-utils";
+import { isInactiveAdmissionStatus } from "@/lib/student-status";
 import { readAllAdmissionsFromSheet } from "./admissions";
 import { addFeeRecord, readAllFeesFromSheetRaw, type FeeRecord } from "./fees";
 import { sortPortalStudentSheets } from "./sort-sheets";
@@ -62,7 +63,7 @@ export async function syncMissingAdmissionFees(): Promise<number> {
     let added = 0;
 
     for (const a of admissions) {
-      if (a.status && a.status.toLowerCase() !== "active") continue;
+      if (isInactiveAdmissionStatus(a.status)) continue;
       const name = a.fullName.trim();
       if (!name) continue;
       if (feeHasStudent(fees, name, a.grNo)) continue;

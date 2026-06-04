@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Search, RefreshCw, ChevronRight } from "lucide-react";
-import { isActiveStatus } from "@/lib/student-status";
+import { isInactiveAdmissionStatus } from "@/lib/student-status";
 import type { AdmissionRecord } from "@/lib/sheets/admissions";
 import { formatINR } from "@/lib/fees/structure";
 import { usePortalRefresh } from "@/lib/use-portal-refresh";
@@ -111,7 +111,7 @@ export default function AdmissionsList() {
               </tr>
             ) : (
               filtered.map((r) => {
-                const inactive = !isActiveStatus(r.status);
+                const inactive = isInactiveAdmissionStatus(r.status);
                 return (
                   <tr key={r.grNo} className={`hover:bg-slate-50 ${inactive ? "opacity-60" : ""}`}>
                     <td className="px-4 py-3 font-mono text-xs text-slate-500">{r.grNo}</td>
