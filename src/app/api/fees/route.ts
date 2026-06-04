@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { recordAudit } from "@/lib/audit";
+import { getPortalActor } from "@/lib/portal-auth";
 import { syncMissingAdmissionFees } from "@/lib/sheets/admission-sync";
 import { getAllFees, getFeeByName } from "@/lib/sheets/fees";
 import { invalidatePortalCache } from "@/lib/sheets/invalidate-portal-cache";
@@ -14,7 +16,18 @@ export async function GET(req: NextRequest) {
     }
     const synced = await syncMissingAdmissionFees();
     if (synced > 0) invalidatePortalCache();
-    if (reorder) await sortPortalStudentSheets();
+    if (reorder) {
+      await sortPortalStudentSheets();
+      const actor = await getPortalActor(req);
+      if (actor) {
+        await recordAudit(req, {
+          action: "reorder",
+          resource: "fees",
+          summary: "Reordered Fee details sheet by class",
+          actor,
+        });
+      }
+    }
     const fees = await getAllFees();
     return NextResponse.json(fees);
   } catch (err) {

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { recordAudit } from "@/lib/audit";
 import { isAdminAuthorized } from "@/lib/admin-auth";
+import { isPortalActor, requirePortalActor } from "@/lib/portal-auth";
 import { getAdmissionByGrNo } from "@/lib/sheets/admissions";
 import { invalidatePortalCache } from "@/lib/sheets/invalidate-portal-cache";
 import { updateAdmissionFromForm } from "@/lib/sheets/save-admission";
@@ -60,13 +62,24 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ grNo: string }> }
 ) {
+  const actor = await requirePortalActor(req);
+  if (!isPortalActor(actor)) return actor;
   try {
     if (!isAdminAuthorized(req)) {
       return NextResponse.json({ error: "Admin access required." }, { status: 401 });
     }
     const { grNo } = await params;
-    const result = await deleteAdmissionByGrNo(decodeURIComponent(grNo));
+    const decoded = decodeURIComponent(grNo);
+    const result = await deleteAdmissionByGrNo(decoded);
     invalidatePortalCache();
+    await recordAudit(req, {
+      action: "delete",
+      resource: "admissions",
+      resourceId: decoded,
+      summary: `Deleted admission ${decoded}`,
+      details: result,
+      actor,
+    });
     return NextResponse.json({ ok: true, ...result });
   } catch (err) {
     console.error("admission DELETE error:", err);

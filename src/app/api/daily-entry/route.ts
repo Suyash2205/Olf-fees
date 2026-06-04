@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { recordAudit } from "@/lib/audit";
+import { getPortalActor, isPortalActor, requirePortalActor } from "@/lib/portal-auth";
 import { revalidateTag } from "next/cache";
 import {
   getAllDailyEntries,
@@ -44,10 +46,11 @@ export async function GET(req: NextRequest) {
 
   try {
     if (srNo && reconcile) {
+      const actor = await getPortalActor(req);
       const fee = await getFeeBySrNo(srNo);
-      if (fee) {
+      if (fee && actor) {
         const all = await getAllDailyEntries();
-        await reconcileStudentPayments(fee, all);
+        await reconcileStudentPayments(fee, all, { req, actor });
       }
     }
 
@@ -64,6 +67,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const actor = await requirePortalActor(req);
+  if (!isPortalActor(actor)) return actor;
   try {
     const body = await req.json();
     const studentName: string = body.studentName?.trim();
@@ -99,6 +104,14 @@ export async function POST(req: NextRequest) {
     await rebuildFeeRowFromLog(feeRecord);
 
     invalidateFees();
+    await recordAudit(req, {
+      action: "create",
+      resource: "payments",
+      resourceId: feeRecord.srNo,
+      summary: `Payment ₹${amount} for ${studentName} on ${date}`,
+      details: { date, amount, feeMonth, className: feeRecord.className },
+      actor,
+    });
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("daily entry error:", err);
@@ -110,6 +123,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const actor = await requirePortalActor(req);
+  if (!isPortalActor(actor)) return actor;
   try {
     const body = await req.json();
     const entryId: string = String(body.entryId);
@@ -133,6 +148,14 @@ export async function DELETE(req: NextRequest) {
     await rebuildFeeRowFromLog(feeRecord);
 
     invalidateFees();
+    await recordAudit(req, {
+      action: "delete",
+      resource: "payments",
+      resourceId: srNo,
+      summary: `Deleted payment log row ${entryId} for ${studentName}`,
+      details: { entryId, studentName },
+      actor,
+    });
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("delete entry error:", err);
@@ -144,6 +167,8 @@ export async function DELETE(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
+  const actor = await requirePortalActor(req);
+  if (!isPortalActor(actor)) return actor;
   try {
     const body = await req.json();
     const entryId: string = String(body.entryId);
@@ -168,6 +193,14 @@ export async function PATCH(req: NextRequest) {
     await rebuildFeeRowFromLog(feeRecord);
 
     invalidateFees();
+    await recordAudit(req, {
+      action: "update",
+      resource: "payments",
+      resourceId: srNo,
+      summary: `Updated payment log row ${entryId} to ₹${newAmount} (${studentName})`,
+      details: { entryId, newAmount, studentName },
+      actor,
+    });
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("edit entry error:", err);

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { recordAudit } from "@/lib/audit";
 import { revalidateTag } from "next/cache";
 import { isAdminAuthorized } from "@/lib/admin-auth";
+import { isPortalActor, requirePortalActor } from "@/lib/portal-auth";
 import {
   demoteAll,
   demoteOne,
@@ -17,6 +19,8 @@ function invalidateAll() {
 type Action = "promote-all" | "demote-all" | "promote" | "demote";
 
 export async function POST(req: NextRequest) {
+  const actor = await requirePortalActor(req);
+  if (!isPortalActor(actor)) return actor;
   try {
     const body = await req.json();
     const action = body.action as Action;
@@ -61,6 +65,14 @@ export async function POST(req: NextRequest) {
     }
 
     invalidateAll();
+    await recordAudit(req, {
+      action: action,
+      resource: "promotion",
+      resourceId: sheetRow ? String(sheetRow) : "all",
+      summary: `Promotion: ${action}`,
+      details: { action, sheetRow: sheetRow || null, result },
+      actor,
+    });
     return NextResponse.json({ ok: true, ...result });
   } catch (err) {
     console.error("promotion error:", err);

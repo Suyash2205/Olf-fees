@@ -1,3 +1,6 @@
+import type { NextRequest } from "next/server";
+import { recordAudit } from "@/lib/audit";
+import type { PortalActor } from "@/lib/portal-auth";
 import type { DailyEntry } from "./dailyLog";
 import {
   appendDailyEntry,
@@ -46,8 +49,9 @@ function toFeePayments(entries: DailyEntry[]): FeePayment[] {
  */
 export async function reconcileStudentPayments(
   fee: FeeRecord,
-  allEntries: DailyEntry[]
-): Promise<void> {
+  allEntries: DailyEntry[],
+  audit?: { req: NextRequest; actor: PortalActor }
+): Promise<{ sheetEntriesAdded: number }> {
   const studentEntries = allEntries.filter((e) => e.srNo === fee.srNo);
   const sheetMonthly = await readMonthlyPaymentsFromSheetRow(fee.sheetRow);
   const today = todayISO();
@@ -79,4 +83,24 @@ export async function reconcileStudentPayments(
 
   await recalculateStudentFees(fee.sheetRow, fee.totalFee, toFeePayments(finalEntries));
   await syncFeeRowAmounts(fee.sheetRow, fee.totalFee, fee.discount);
+
+  if (audit && toAppend.length > 0) {
+    await recordAudit(audit.req, {
+      action: "sync",
+      resource: "payments",
+      resourceId: fee.srNo,
+      summary: `Imported ${toAppend.length} payment(s) from Fee details for ${fee.studentName}`,
+      details: {
+        studentName: fee.studentName,
+        entries: toAppend.map((e) => ({
+          date: e.date,
+          amount: e.amount,
+          feeMonth: e.feeMonth,
+        })),
+      },
+      actor: audit.actor,
+    });
+  }
+
+  return { sheetEntriesAdded: toAppend.length };
 }

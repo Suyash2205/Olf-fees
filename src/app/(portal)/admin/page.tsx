@@ -1,4 +1,5 @@
 import AdminAdmissionBackfill from "@/components/admin/AdminAdmissionBackfill";
+import AdminAuditLog from "@/components/admin/AdminAuditLog";
 import AdminGate from "@/components/admin/AdminGate";
 import AdminIndividualPromotion from "@/components/admin/AdminIndividualPromotion";
 import AdminStudentManagement from "@/components/admin/AdminStudentManagement";
@@ -10,11 +11,12 @@ export default function AdminPage() {
       <div>
         <h1 className="text-2xl font-bold text-slate-800">Admin</h1>
         <p className="text-sm text-slate-500 mt-1">
-          Password-protected area for promotion, demotion, and sensitive student changes.
+          Password-protected area for promotion, activity logs, and sensitive student changes.
         </p>
       </div>
       <AdminGate>
         <div className="space-y-6">
+          <AdminAuditLog />
           <AdminAdmissionBackfill />
           <PromotionPanel />
           <AdminIndividualPromotion />

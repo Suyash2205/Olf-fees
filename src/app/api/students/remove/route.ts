@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { recordAudit } from "@/lib/audit";
 import { isAdminAuthorized } from "@/lib/admin-auth";
+import { isPortalActor, requirePortalActor } from "@/lib/portal-auth";
 import { removeStudentCompletely } from "@/lib/sheets/student-lifecycle";
 
 export async function POST(req: NextRequest) {
+  const actor = await requirePortalActor(req);
+  if (!isPortalActor(actor)) return actor;
   try {
     const body = await req.json();
     if (!isAdminAuthorized(req)) {
@@ -16,6 +20,14 @@ export async function POST(req: NextRequest) {
     }
 
     const result = await removeStudentCompletely({ sheetRow, grNo });
+    await recordAudit(req, {
+      action: "delete",
+      resource: "students",
+      resourceId: grNo ?? String(sheetRow),
+      summary: `Removed student from portal and sheets`,
+      details: { sheetRow, grNo, ...result },
+      actor,
+    });
     return NextResponse.json({ ok: true, ...result });
   } catch (err) {
     console.error("student remove error:", err);

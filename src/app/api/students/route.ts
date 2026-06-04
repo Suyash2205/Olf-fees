@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { recordAudit } from "@/lib/audit";
+import { isPortalActor, requirePortalActor } from "@/lib/portal-auth";
 import {
   computeFeeBreakdown,
   type DiscountType,
@@ -43,6 +45,8 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const actor = await requirePortalActor(req);
+  if (!isPortalActor(actor)) return actor;
   try {
     const body = await req.json();
     const name = body.name?.trim();
@@ -77,6 +81,14 @@ export async function POST(req: NextRequest) {
     });
 
     invalidatePortalCache();
+    await recordAudit(req, {
+      action: "create",
+      resource: "students",
+      resourceId: srNo,
+      summary: `Added student ${name} (${className})`,
+      details: { name, className, totalFee, discountType, discountValue },
+      actor,
+    });
     return NextResponse.json({ ok: true, srNo });
   } catch (err) {
     console.error("add student error:", err);

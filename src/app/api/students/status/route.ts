@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { recordAudit } from "@/lib/audit";
 import { isAdminAuthorized } from "@/lib/admin-auth";
+import { isPortalActor, requirePortalActor } from "@/lib/portal-auth";
 import { setStudentStatus } from "@/lib/sheets/student-lifecycle";
 
 export async function POST(req: NextRequest) {
+  const actor = await requirePortalActor(req);
+  if (!isPortalActor(actor)) return actor;
   try {
     const body = await req.json();
     if (!isAdminAuthorized(req)) {
@@ -20,6 +24,14 @@ export async function POST(req: NextRequest) {
     }
 
     const result = await setStudentStatus({ sheetRow, grNo, status });
+    await recordAudit(req, {
+      action: "status",
+      resource: "students",
+      resourceId: grNo ?? String(sheetRow),
+      summary: `Set student status to ${status}`,
+      details: { sheetRow, grNo, newStatus: status, ...result },
+      actor,
+    });
     return NextResponse.json({ ok: true, ...result });
   } catch (err) {
     console.error("student status error:", err);

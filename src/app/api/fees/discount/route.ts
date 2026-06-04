@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import { recordAudit } from "@/lib/audit";
+import { isPortalActor, requirePortalActor } from "@/lib/portal-auth";
 import { revalidateTag } from "next/cache";
 import type { DiscountType } from "@/lib/fees/structure";
 import { applyFeeDiscount, getAllFees } from "@/lib/sheets/fees";
 
 export async function POST(req: NextRequest) {
+  const actor = await requirePortalActor(req);
+  if (!isPortalActor(actor)) return actor;
   try {
     const body = await req.json();
     const sheetRow = Number(body.sheetRow);
@@ -27,6 +31,14 @@ export async function POST(req: NextRequest) {
     rt("students", "default");
     rt("admissions", "default");
 
+    await recordAudit(req, {
+      action: "discount",
+      resource: "fees",
+      resourceId: record.srNo,
+      summary: `Discount on ${record.studentName}: ${discountType} ${discountValue}`,
+      details: { sheetRow, discountType, discountValue, ...result },
+      actor,
+    });
     return NextResponse.json({ ok: true, ...result });
   } catch (err) {
     console.error("fees discount error:", err);
