@@ -162,6 +162,11 @@ export async function getFeeByName(name: string): Promise<FeeRecord | null> {
   return fees.find((f) => f.studentName === name) ?? null;
 }
 
+export async function getFeeBySrNo(srNo: string): Promise<FeeRecord | null> {
+  const fees = await getAllFees();
+  return fees.find((f) => f.srNo === srNo) ?? null;
+}
+
 export async function updateFeePayment(
   sheetRow: number,
   field: "q1Paid" | "q2Paid" | "q3Paid" | "q4Paid" | "notes",
@@ -221,12 +226,17 @@ export async function getPendingFees(): Promise<PendingFeeSummary[]> {
 }
 
 // Month (1-12) → 0-based column index (for monthly tracking only)
-const MONTH_TO_COL: Record<number, number> = {
+export const MONTH_TO_COL: Record<number, number> = {
   6: 8,  7: 9,  8: 10,  // Q1: Jun=I, Jul=J, Aug=K
   9: 12, 10: 13, 11: 14, // Q2: Sep=M, Oct=N, Nov=O
   12: 16, 1: 17, 2: 18,  // Q3: Dec=Q, Jan=R, Feb=S
   3: 20,  4: 21, 5: 22,  // Q4: Mar=U, Apr=V, May=W
 };
+
+/** Academic-year month order (Jun → May). */
+export const FEE_MONTHS = [6, 7, 8, 9, 10, 11, 12, 1, 2, 3, 4, 5] as const;
+
+export type FeePayment = { date: string; amount: number; feeMonth?: number };
 
 // All 12 monthly sub-columns (in order)
 const ALL_MONTH_COLS = Object.values(MONTH_TO_COL).sort((a, b) => a - b);
@@ -241,6 +251,23 @@ const Q_MONTH_COL_GROUPS = [
   [16, 17, 18],
   [20, 21, 22],
 ] as const;
+
+/** Read Jun–May payment amounts from a fee row (cols I–W). */
+export async function readMonthlyPaymentsFromSheetRow(
+  sheetRow: number
+): Promise<Record<number, number>> {
+  const sheets = getSheetsClient();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: FEES_SHEET_ID,
+    range: `${SHEET_NAME}!${colLetter(8)}${sheetRow}:${colLetter(22)}${sheetRow}`,
+  });
+  const row = res.data.values?.[0] ?? [];
+  const out: Record<number, number> = {};
+  for (const [month, colIdx] of Object.entries(MONTH_TO_COL)) {
+    out[Number(month)] = parseNum(row[colIdx - 8]);
+  }
+  return out;
+}
 
 /** Sum monthly payment columns into Q1–Q4 paid totals. */
 export async function readQuarterPaidFromSheetRow(
@@ -383,7 +410,7 @@ export async function recordPaymentToSheet(
 export async function recalculateStudentFees(
   sheetRow: number,
   totalFee: number,
-  payments: { date: string; amount: number }[]
+  payments: FeePayment[]
 ): Promise<void> {
   const sheets = getSheetsClient();
   const quarterSize = totalFee > 0 ? totalFee / 4 : 0;
@@ -392,7 +419,7 @@ export async function recalculateStudentFees(
   // Tally monthly column amounts
   const monthlyMap: Record<number, number> = {};
 
-  for (const { date, amount } of payments) {
+  for (const { date, amount, feeMonth } of payments) {
     // Quarter allocation (Q1 → Q2 → Q3 → Q4 in order)
     let rem = amount;
     for (let i = 0; i < 4 && rem > 0; i++) {
@@ -404,8 +431,9 @@ export async function recalculateStudentFees(
     }
     if (rem > 0) qPaid[3] += rem;
 
-    // Track which monthly column this payment belongs to
-    const month = new Date(date + "T00:00:00").getMonth() + 1;
+    // Fee month column: explicit (sheet sync) or from payment date
+    const month =
+      feeMonth ?? new Date(date + "T00:00:00").getMonth() + 1;
     const monthColIdx = MONTH_TO_COL[month];
     if (monthColIdx !== undefined) {
       monthlyMap[monthColIdx] = (monthlyMap[monthColIdx] ?? 0) + amount;

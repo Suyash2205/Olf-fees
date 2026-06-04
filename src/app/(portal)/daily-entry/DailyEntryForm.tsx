@@ -131,11 +131,19 @@ export default function DailyEntryForm() {
   }, []);
 
   useEffect(() => {
-    if (!selectedFee) { setEntries([]); return; }
+    if (!selectedFee) {
+      setEntries([]);
+      return;
+    }
     setLoadingEntries(true);
-    portalFetch(`/api/daily-entry?srNo=${encodeURIComponent(selectedFee.srNo)}`)
+    portalFetch(
+      `/api/daily-entry?srNo=${encodeURIComponent(selectedFee.srNo)}&reconcile=1`
+    )
       .then((r) => r.json())
-      .then((data) => setEntries(Array.isArray(data) ? data : []))
+      .then(async (data) => {
+        setEntries(Array.isArray(data) ? data : []);
+        await refreshStudentFee(selectedFee.studentName);
+      })
       .catch(() => setEntries([]))
       .finally(() => setLoadingEntries(false));
   }, [selectedFee?.srNo]);

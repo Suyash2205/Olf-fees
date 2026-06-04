@@ -7,16 +7,50 @@ import {
   updateDailyEntry,
   deleteDailyEntry,
 } from "@/lib/sheets/dailyLog";
-import { getFeeByName, recordPaymentToSheet, recalculateStudentFees } from "@/lib/sheets/fees";
+import { getFeeByName, getFeeBySrNo, recalculateStudentFees, syncFeeRowAmounts } from "@/lib/sheets/fees";
+import { feeMonthForEntry, reconcileStudentPayments } from "@/lib/sheets/payment-sync";
 
-// revalidateTag requires 2 args in Next.js 16; pass "default" to avoid the deprecation warning.
 function invalidateFees() {
   (revalidateTag as (tag: string, profile: string) => void)("fees", "default");
 }
 
+function paymentsFromEntries(
+  entries: Awaited<ReturnType<typeof getDailyEntriesForStudent>>
+) {
+  return entries
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map((e) => ({
+      date: e.date,
+      amount: e.amount,
+      feeMonth: feeMonthForEntry(e),
+    }));
+}
+
+async function rebuildFeeRowFromLog(
+  feeRecord: NonNullable<Awaited<ReturnType<typeof getFeeByName>>>
+) {
+  const entries = await getDailyEntriesForStudent(feeRecord.srNo);
+  await recalculateStudentFees(
+    feeRecord.sheetRow,
+    feeRecord.totalFee,
+    paymentsFromEntries(entries)
+  );
+  await syncFeeRowAmounts(feeRecord.sheetRow, feeRecord.totalFee, feeRecord.discount);
+}
+
 export async function GET(req: NextRequest) {
   const srNo = req.nextUrl.searchParams.get("srNo");
+  const reconcile = req.nextUrl.searchParams.get("reconcile") !== "0";
+
   try {
+    if (srNo && reconcile) {
+      const fee = await getFeeBySrNo(srNo);
+      if (fee) {
+        const all = await getAllDailyEntries();
+        await reconcileStudentPayments(fee, all);
+      }
+    }
+
     const entries = srNo
       ? await getDailyEntriesForStudent(srNo)
       : await getAllDailyEntries();
@@ -37,15 +71,21 @@ export async function POST(req: NextRequest) {
     const amount = Number(body.amount);
 
     if (!studentName || !date || !amount || amount <= 0) {
-      return NextResponse.json({ error: "studentName, date, and amount > 0 are required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "studentName, date, and amount > 0 are required" },
+        { status: 400 }
+      );
     }
 
     const feeRecord = await getFeeByName(studentName);
     if (!feeRecord) {
-      return NextResponse.json({ error: `Student "${studentName}" not found in fee records` }, { status: 404 });
+      return NextResponse.json(
+        { error: `Student "${studentName}" not found in fee records` },
+        { status: 404 }
+      );
     }
 
-    await recordPaymentToSheet(feeRecord.sheetRow, date, amount, feeRecord);
+    const feeMonth = new Date(date + "T00:00:00").getMonth() + 1;
 
     await appendDailyEntry({
       date,
@@ -53,7 +93,10 @@ export async function POST(req: NextRequest) {
       className: feeRecord.className,
       srNo: feeRecord.srNo,
       amount,
+      feeMonth,
     });
+
+    await rebuildFeeRowFromLog(feeRecord);
 
     invalidateFees();
     return NextResponse.json({ ok: true });
@@ -74,7 +117,10 @@ export async function DELETE(req: NextRequest) {
     const srNo: string = body.srNo?.trim();
 
     if (!entryId || !studentName || !srNo) {
-      return NextResponse.json({ error: "entryId, studentName, and srNo are required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "entryId, studentName, and srNo are required" },
+        { status: 400 }
+      );
     }
 
     await deleteDailyEntry(entryId);
@@ -84,12 +130,7 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Student not found" }, { status: 404 });
     }
 
-    const remaining = await getDailyEntriesForStudent(srNo);
-    const payments = remaining
-      .sort((a, b) => a.date.localeCompare(b.date))
-      .map((e) => ({ date: e.date, amount: e.amount }));
-
-    await recalculateStudentFees(feeRecord.sheetRow, feeRecord.totalFee, payments);
+    await rebuildFeeRowFromLog(feeRecord);
 
     invalidateFees();
     return NextResponse.json({ ok: true });
@@ -111,7 +152,10 @@ export async function PATCH(req: NextRequest) {
     const srNo: string = body.srNo?.trim();
 
     if (!entryId || !newAmount || newAmount <= 0 || !studentName || !srNo) {
-      return NextResponse.json({ error: "entryId, newAmount > 0, studentName, and srNo are required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "entryId, newAmount > 0, studentName, and srNo are required" },
+        { status: 400 }
+      );
     }
 
     await updateDailyEntry(entryId, newAmount);
@@ -121,12 +165,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Student not found" }, { status: 404 });
     }
 
-    const allEntries = await getDailyEntriesForStudent(srNo);
-    const payments = allEntries
-      .sort((a, b) => a.date.localeCompare(b.date))
-      .map((e) => ({ date: e.date, amount: e.amount }));
-
-    await recalculateStudentFees(feeRecord.sheetRow, feeRecord.totalFee, payments);
+    await rebuildFeeRowFromLog(feeRecord);
 
     invalidateFees();
     return NextResponse.json({ ok: true });

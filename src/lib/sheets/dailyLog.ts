@@ -9,7 +9,11 @@ export interface DailyEntry {
   className: string;
   srNo: string;
   amount: number;
+  /** Fee month column (1–12). Jun=6. From sheet sync or payment date. */
+  feeMonth?: number;
 }
+
+export type DailyEntryInput = Omit<DailyEntry, "id">;
 
 async function ensureSheet(): Promise<void> {
   const sheets = getSheetsClient();
@@ -22,23 +26,49 @@ async function ensureSheet(): Promise<void> {
     });
     await sheets.spreadsheets.values.update({
       spreadsheetId: FEES_SHEET_ID,
-      range: `${SHEET_NAME}!A1:E1`,
+      range: `${SHEET_NAME}!A1:F1`,
       valueInputOption: "USER_ENTERED",
-      requestBody: { values: [["Date", "Student Name", "Class", "Sr No", "Amount"]] },
+      requestBody: {
+        values: [["Date", "Student Name", "Class", "Sr No", "Amount", "Fee Month"]],
+      },
+    });
+    return;
+  }
+
+  const headerRes = await sheets.spreadsheets.values.get({
+    spreadsheetId: FEES_SHEET_ID,
+    range: `${SHEET_NAME}!A1:F1`,
+  });
+  const headers = headerRes.data.values?.[0] ?? [];
+  if (headers[5] !== "Fee Month") {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: FEES_SHEET_ID,
+      range: `${SHEET_NAME}!F1`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [["Fee Month"]] },
     });
   }
 }
 
-export async function appendDailyEntry(entry: Omit<DailyEntry, "id">): Promise<void> {
+export async function appendDailyEntry(entry: DailyEntryInput): Promise<void> {
   await ensureSheet();
   const sheets = getSheetsClient();
   await sheets.spreadsheets.values.append({
     spreadsheetId: FEES_SHEET_ID,
-    range: `${SHEET_NAME}!A:E`,
+    range: `${SHEET_NAME}!A:F`,
     valueInputOption: "USER_ENTERED",
     insertDataOption: "INSERT_ROWS",
     requestBody: {
-      values: [[entry.date, entry.studentName, entry.className, entry.srNo, entry.amount]],
+      values: [
+        [
+          entry.date,
+          entry.studentName,
+          entry.className,
+          entry.srNo,
+          entry.amount,
+          entry.feeMonth ?? "",
+        ],
+      ],
     },
   });
 }
@@ -48,7 +78,7 @@ export async function getAllDailyEntries(): Promise<DailyEntry[]> {
   const sheets = getSheetsClient();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: FEES_SHEET_ID,
-    range: `${SHEET_NAME}!A:E`,
+    range: `${SHEET_NAME}!A:F`,
   });
   const rows = (res.data.values ?? []).slice(1);
   return rows
@@ -59,6 +89,7 @@ export async function getAllDailyEntries(): Promise<DailyEntry[]> {
       className: row[2] ?? "",
       srNo: row[3] ?? "",
       amount: Number(row[4]) || 0,
+      feeMonth: row[5] ? Number(row[5]) : undefined,
     }))
     .filter((e) => e.date && e.studentName);
 }
