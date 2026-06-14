@@ -26,7 +26,7 @@ export default function ClassesClient() {
     setLoading(true);
     setError(null);
     try {
-      const res = await portalFetch(feesListUrl(true));
+      const res = await portalFetch(feesListUrl());
       if (!res.ok) throw new Error(`Server error ${res.status}`);
       const data: FeeRecord[] = await res.json();
       setFees(data);

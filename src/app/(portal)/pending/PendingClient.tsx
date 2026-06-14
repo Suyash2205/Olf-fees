@@ -25,7 +25,7 @@ export default function PendingClient() {
     setLoading(true);
     setError(null);
     try {
-      const res = await portalFetch(feesListUrl(true));
+      const res = await portalFetch(feesListUrl());
       if (!res.ok) throw new Error(`Server error ${res.status}`);
       const fees = await res.json();
       const result: PendingFeeSummary[] = fees
