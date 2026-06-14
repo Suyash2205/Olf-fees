@@ -56,17 +56,24 @@ export async function reconcileStudentPayments(
   const sheetMonthly = await readMonthlyPaymentsFromSheetRow(fee.sheetRow);
   const today = todayISO();
   const toAppend: DailyEntryInput[] = [];
+  const logTotal = studentEntries.reduce((s, e) => s + e.amount, 0);
+  let importTotal = 0;
 
   for (const month of FEE_MONTHS) {
     const sheetAmt = sheetMonthly[month] ?? 0;
     const logAmt = sumLogByFeeMonth(studentEntries, month);
     if (sheetAmt > logAmt + 0.001) {
+      const diff = sheetAmt - logAmt;
+      // Ignore bogus sheet→log imports that would exceed the annual fee (e.g. Q totals
+      // accidentally written into monthly columns by a past sync bug).
+      if (logTotal + importTotal + diff > fee.totalFee + 0.001) continue;
+      importTotal += diff;
       toAppend.push({
         date: today,
         studentName: fee.studentName,
         className: fee.className,
         srNo: fee.srNo,
-        amount: sheetAmt - logAmt,
+        amount: diff,
         feeMonth: month,
       });
     }

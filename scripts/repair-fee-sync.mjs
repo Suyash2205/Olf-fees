@@ -94,10 +94,10 @@ await sheets.spreadsheets.values.batchUpdate({
       { range: `${SHEET_NAME}!${col(COL.discount)}${sheetRow}`, values: [[discount > 0 ? discount : ""]] },
       { range: `${SHEET_NAME}!${col(5)}${sheetRow}`, values: [[pendingPct]] },
       { range: `${SHEET_NAME}!${col(COL.pendingCol)}${sheetRow}`, values: [[balance]] },
-      {
-        range: `${SHEET_NAME}!${col(COL.q1Paid)}${sheetRow}:${col(COL.q4Paid)}${sheetRow}`,
-        values: [qPaid],
-      },
+      ...Q_TOTAL_COLS.map((colIdx, i) => ({
+        range: `${SHEET_NAME}!${col(colIdx)}${sheetRow}`,
+        values: [[qPaid[i]]],
+      })),
       {
         range: `${SHEET_NAME}!${col(COL.totalPaid)}${sheetRow}:${col(COL.balance)}${sheetRow}`,
         values: [[totalPaid, balance]],

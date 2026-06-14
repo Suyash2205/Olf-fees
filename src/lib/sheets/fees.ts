@@ -322,10 +322,10 @@ export async function syncFeeRowAmounts(
           range: `${SHEET_NAME}!${colLetter(COL.pendingCol)}${sheetRow}`,
           values: [[balance]],
         },
-        {
-          range: `${SHEET_NAME}!${colLetter(COL.q1Paid)}${sheetRow}:${colLetter(COL.q4Paid)}${sheetRow}`,
-          values: [qPaid],
-        },
+        ...Q_TOTAL_COLS.map((colIdx, i) => ({
+          range: `${SHEET_NAME}!${colLetter(colIdx)}${sheetRow}`,
+          values: [[qPaid[i]]],
+        })),
         {
           range: `${SHEET_NAME}!${colLetter(COL.totalPaid)}${sheetRow}:${colLetter(COL.balance)}${sheetRow}`,
           values: [[totalPaid, balance]],
