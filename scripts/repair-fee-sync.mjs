@@ -1,5 +1,5 @@
 /**
- * Reconcile one fee row on the sheet (Q totals, pending) from monthly columns + annual fee.
+ * Reconcile one fee row on the sheet (Q totals, pending) from Q total columns + annual fee.
  * Usage: node scripts/repair-fee-sync.mjs "Student Name"
  */
 import { readFileSync } from "fs";
@@ -35,12 +35,7 @@ const COL = {
   balance: 25,
 };
 
-const Q_MONTH_COL_GROUPS = [
-  [8, 9, 10],
-  [12, 13, 14],
-  [16, 17, 18],
-  [20, 21, 22],
-];
+const Q_TOTAL_COLS = [COL.q1Paid, COL.q2Paid, COL.q3Paid, COL.q4Paid];
 
 function col(n) {
   if (n < 26) return String.fromCharCode(65 + n);
@@ -82,14 +77,10 @@ if (!sheetRow) {
 
 const months = await sheets.spreadsheets.values.get({
   spreadsheetId: id,
-  range: `${SHEET_NAME}!${col(8)}${sheetRow}:${col(22)}${sheetRow}`,
+  range: `${SHEET_NAME}!A${sheetRow}:Z${sheetRow}`,
 });
 const monthRow = months.data.values?.[0] ?? [];
-const qPaid = Q_MONTH_COL_GROUPS.map((group) => {
-  let sum = 0;
-  for (const colIdx of group) sum += parseNum(monthRow[colIdx - 8]);
-  return sum;
-});
+const qPaid = Q_TOTAL_COLS.map((colIdx) => parseNum(monthRow[colIdx]));
 const totalPaid = qPaid.reduce((s, v) => s + v, 0);
 const balance = Math.max(0, totalFee - totalPaid);
 const pendingPct = totalFee > 0 ? `${((balance / totalFee) * 100).toFixed(2)}%` : "";

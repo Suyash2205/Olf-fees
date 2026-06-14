@@ -244,14 +244,6 @@ const ALL_MONTH_COLS = Object.values(MONTH_TO_COL).sort((a, b) => a - b);
 // Quarter total columns (L, P, T, X)
 const Q_TOTAL_COLS = [COL.q1Paid, COL.q2Paid, COL.q3Paid, COL.q4Paid];
 
-/** Month column indices grouped by quarter (I–W). */
-const Q_MONTH_COL_GROUPS = [
-  [8, 9, 10],
-  [12, 13, 14],
-  [16, 17, 18],
-  [20, 21, 22],
-] as const;
-
 /** Read Jun–May payment amounts from a fee row (cols I–W). */
 export async function readMonthlyPaymentsFromSheetRow(
   sheetRow: number
@@ -269,28 +261,27 @@ export async function readMonthlyPaymentsFromSheetRow(
   return out;
 }
 
-/** Sum monthly payment columns into Q1–Q4 paid totals. */
+/** Read Q1–Q4 paid totals from sheet total columns (L, P, T, X). */
 export async function readQuarterPaidFromSheetRow(
   sheetRow: number
 ): Promise<[number, number, number, number]> {
   const sheets = getSheetsClient();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: FEES_SHEET_ID,
-    range: `${SHEET_NAME}!${colLetter(8)}${sheetRow}:${colLetter(22)}${sheetRow}`,
+    range: `${SHEET_NAME}!A${sheetRow}:Z${sheetRow}`,
   });
   const row = res.data.values?.[0] ?? [];
-  return Q_MONTH_COL_GROUPS.map((group) => {
-    let sum = 0;
-    for (const colIdx of group) {
-      sum += parseNum(row[colIdx - 8]);
-    }
-    return sum;
-  }) as [number, number, number, number];
+  return [
+    parseNum(row[COL.q1Paid]),
+    parseNum(row[COL.q2Paid]),
+    parseNum(row[COL.q3Paid]),
+    parseNum(row[COL.q4Paid]),
+  ];
 }
 
 /**
  * After fees decided / discount changes, rewrite sheet totals so Q columns and
- * pending match the new annual fee and existing monthly payments.
+ * pending match the current annual fee and existing Q1–Q4 paid amounts.
  */
 export async function syncFeeRowAmounts(
   sheetRow: number,

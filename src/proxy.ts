@@ -21,6 +21,7 @@ export const config = {
     "/students/:path*",
     "/fees/:path*",
     "/daily-entry/:path*",
+    "/daily-expense/:path*",
     "/pending/:path*",
     "/classes/:path*",
     "/udise/:path*",
