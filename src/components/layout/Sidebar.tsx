@@ -26,7 +26,7 @@ const NAV_ITEMS = [
   { href: "/udise", label: "UDISE", icon: Database },
   { href: "/students", label: "Students", icon: Users },
   { href: "/fees", label: "Fees", icon: IndianRupee },
-  { href: "/daily-entry", label: "Daily Entry", icon: ClipboardList },
+  { href: "/daily-entry", label: "Daily Fees Entry", icon: ClipboardList },
   { href: "/daily-expense", label: "Daily Expense", icon: Receipt },
   { href: "/pending", label: "Pending Fees", icon: AlertCircle },
   { href: "/classes", label: "Classes", icon: GraduationCap },

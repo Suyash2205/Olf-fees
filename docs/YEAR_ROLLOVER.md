@@ -20,7 +20,7 @@ The portal reads/writes **`Fee details`** only. Column layout matches the existi
 ## Your next steps (manual / school)
 
 1. **Restart the dev server** after `.env.local` change: `npm run dev`
-2. **Confirm in the portal**: Dashboard, Fees, Daily Entry should show the same students as the new sheet (~486 rows).
+2. **Confirm in the portal**: Dashboard, Fees, Daily Fees Entry should show the same students as the new sheet (~486 rows).
 3. **Keep the old fees workbook** as read-only archive for 2025–26 history.
 
 ## Still to do (promotion + new fees)

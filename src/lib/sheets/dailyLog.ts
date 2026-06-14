@@ -1,7 +1,8 @@
 import { normalizePaymentMode, paymentModeLabel, type PaymentMode } from "@/lib/payment-mode";
 import { getSheetsClient, FEES_SHEET_ID } from "./client";
 
-const SHEET_NAME = "Daily Log";
+const LEGACY_SHEET_NAME = "Daily Log";
+export const SHEET_NAME = "Daily Fees Log";
 
 export interface DailyEntry {
   id: string;
@@ -31,19 +32,37 @@ const HEADERS = [
 async function ensureSheet(): Promise<void> {
   const sheets = getSheetsClient();
   const meta = await sheets.spreadsheets.get({ spreadsheetId: FEES_SHEET_ID });
-  const exists = meta.data.sheets?.some((s) => s.properties?.title === SHEET_NAME);
-  if (!exists) {
-    await sheets.spreadsheets.batchUpdate({
-      spreadsheetId: FEES_SHEET_ID,
-      requestBody: { requests: [{ addSheet: { properties: { title: SHEET_NAME } } }] },
-    });
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: FEES_SHEET_ID,
-      range: `${SHEET_NAME}!A1:G1`,
-      valueInputOption: "USER_ENTERED",
-      requestBody: { values: [[...HEADERS]] },
-    });
-    return;
+  const sheetList = meta.data.sheets ?? [];
+  const hasCurrent = sheetList.some((s) => s.properties?.title === SHEET_NAME);
+  if (!hasCurrent) {
+    const legacy = sheetList.find((s) => s.properties?.title === LEGACY_SHEET_NAME);
+    if (legacy?.properties?.sheetId != null) {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: FEES_SHEET_ID,
+        requestBody: {
+          requests: [
+            {
+              updateSheetProperties: {
+                properties: { sheetId: legacy.properties.sheetId, title: SHEET_NAME },
+                fields: "title",
+              },
+            },
+          ],
+        },
+      });
+    } else {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: FEES_SHEET_ID,
+        requestBody: { requests: [{ addSheet: { properties: { title: SHEET_NAME } } }] },
+      });
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: FEES_SHEET_ID,
+        range: `${SHEET_NAME}!A1:G1`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [[...HEADERS]] },
+      });
+      return;
+    }
   }
 
   const headerRes = await sheets.spreadsheets.values.get({
@@ -156,7 +175,7 @@ export async function deleteDailyEntry(rowId: string): Promise<void> {
   const meta = await sheets.spreadsheets.get({ spreadsheetId: FEES_SHEET_ID });
   const sheet = meta.data.sheets?.find((s) => s.properties?.title === SHEET_NAME);
   const sheetId = sheet?.properties?.sheetId;
-  if (sheetId === undefined) throw new Error("Daily Log sheet not found");
+  if (sheetId === undefined) throw new Error(`${SHEET_NAME} sheet not found`);
 
   const rowIndex = Number(rowId) - 1; // 0-based
   await sheets.spreadsheets.batchUpdate({

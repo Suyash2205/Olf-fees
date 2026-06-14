@@ -20,7 +20,7 @@ function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-/** Which fee month (Jun=6 … May=5) a daily log row counts toward. */
+/** Which fee month (Jun=6 … May=5) a Daily Fees Log row counts toward. */
 export function feeMonthForEntry(entry: DailyEntry): number {
   if (entry.feeMonth && entry.feeMonth >= 1 && entry.feeMonth <= 12) {
     return entry.feeMonth;
@@ -43,8 +43,8 @@ function toFeePayments(entries: DailyEntry[]): FeePayment[] {
 }
 
 /**
- * Keep Daily Log and Fee details in sync for one student.
- * - Sheet monthly column higher than log → append Daily Log row (today, fee month = that column).
+ * Keep Daily Fees Log and Fee details in sync for one student.
+ * - Sheet monthly column higher than log → append Daily Fees Log row (today, fee month = that column).
  * - Log is source for edits/deletes → rebuild monthly + Q totals from log afterward.
  */
 export async function reconcileStudentPayments(
