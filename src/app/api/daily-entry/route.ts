@@ -50,8 +50,12 @@ export async function GET(req: NextRequest) {
       const actor = await getPortalActor(req);
       const fee = await getFeeBySrNo(srNo);
       if (fee && actor) {
-        const all = await getAllDailyEntries();
-        await reconcileStudentPayments(fee, all, { req, actor });
+        try {
+          const all = await getAllDailyEntries();
+          await reconcileStudentPayments(fee, all, { req, actor });
+        } catch (reconcileErr) {
+          console.error("daily-entry reconcile:", reconcileErr);
+        }
       }
     }
 
@@ -133,6 +137,12 @@ export async function DELETE(req: NextRequest) {
     const entryId: string = String(body.entryId);
     const studentName: string = body.studentName?.trim();
     const srNo: string = body.srNo?.trim();
+    const date: string = String(body.date ?? "").trim();
+    const amount = Number(body.amount);
+    const feeMonth =
+      body.feeMonth !== undefined && body.feeMonth !== ""
+        ? Number(body.feeMonth)
+        : undefined;
 
     if (!entryId || !studentName || !srNo) {
       return NextResponse.json(
@@ -141,7 +151,12 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    await deleteDailyEntry(entryId);
+    await deleteDailyEntry(
+      entryId,
+      date && amount > 0
+        ? { srNo, date, amount, ...(feeMonth ? { feeMonth } : {}) }
+        : undefined
+    );
 
     const feeRecord = await getFeeByName(studentName);
     if (!feeRecord) {

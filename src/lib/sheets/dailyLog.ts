@@ -169,15 +169,52 @@ export async function updateDailyEntry(
   });
 }
 
-export async function deleteDailyEntry(rowId: string): Promise<void> {
+export async function deleteDailyEntry(
+  entryId: string,
+  expected?: {
+    srNo: string;
+    date: string;
+    amount: number;
+    feeMonth?: number;
+  }
+): Promise<void> {
   await ensureSheet();
+
+  let rowId = entryId;
+  if (expected) {
+    const entries = await getAllDailyEntries();
+    const matchesExpected = (e: DailyEntry) =>
+      e.srNo === expected.srNo &&
+      e.date === expected.date &&
+      Math.abs(e.amount - expected.amount) < 0.001 &&
+      (expected.feeMonth === undefined || (e.feeMonth ?? 0) === expected.feeMonth);
+
+    const atId = entries.find((e) => e.id === entryId);
+    if (atId && matchesExpected(atId)) {
+      rowId = entryId;
+    } else {
+      const candidates = entries.filter(matchesExpected);
+      if (candidates.length === 1) {
+        rowId = candidates[0].id;
+      } else if (candidates.length === 0) {
+        throw new Error("Payment entry not found on sheet");
+      } else {
+        throw new Error("Multiple matching payments — refresh the page and try again");
+      }
+    }
+  }
+
   const sheets = getSheetsClient();
   const meta = await sheets.spreadsheets.get({ spreadsheetId: FEES_SHEET_ID });
   const sheet = meta.data.sheets?.find((s) => s.properties?.title === SHEET_NAME);
   const sheetId = sheet?.properties?.sheetId;
   if (sheetId === undefined) throw new Error(`${SHEET_NAME} sheet not found`);
 
-  const rowIndex = Number(rowId) - 1; // 0-based
+  const rowIndex = Number(rowId) - 1;
+  if (!Number.isFinite(rowIndex) || rowIndex < 1) {
+    throw new Error("Invalid payment row");
+  }
+
   await sheets.spreadsheets.batchUpdate({
     spreadsheetId: FEES_SHEET_ID,
     requestBody: {

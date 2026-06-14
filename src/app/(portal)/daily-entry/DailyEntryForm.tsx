@@ -53,7 +53,7 @@ export default function DailyEntryForm() {
     setFeesLoading(true);
     setFeesError(null);
     try {
-      const res = await portalFetch(feesListUrl(true));
+      const res = await portalFetch(feesListUrl());
       if (!res.ok) throw new Error(`Server error ${res.status}`);
       const data: FeeRecord[] = await res.json();
       setFees(data);
@@ -225,20 +225,30 @@ export default function DailyEntryForm() {
 
   async function handleDelete(entry: DailyEntry) {
     setDeleting(true);
+    setError(null);
     try {
       const res = await portalFetch("/api/daily-entry", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ entryId: entry.id, studentName: entry.studentName, srNo: entry.srNo }),
+        body: JSON.stringify({
+          entryId: entry.id,
+          studentName: entry.studentName,
+          srNo: entry.srNo,
+          date: entry.date,
+          amount: entry.amount,
+          feeMonth: entry.feeMonth,
+        }),
       });
-      if (!res.ok) throw new Error("Delete failed");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Delete failed");
       setConfirmDeleteId(null);
       await Promise.all([
         refreshStudentFee(entry.studentName),
         refreshEntries(entry.srNo),
       ]);
-    } catch {
+    } catch (err) {
       setConfirmDeleteId(null);
+      setError(err instanceof Error ? err.message : "Could not delete payment");
     } finally {
       setDeleting(false);
     }
