@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { recordAudit } from "@/lib/audit";
+import { normalizePaymentMode } from "@/lib/payment-mode";
 import { getPortalActor, isPortalActor, requirePortalActor } from "@/lib/portal-auth";
 import { revalidateTag } from "next/cache";
 import {
@@ -91,6 +92,7 @@ export async function POST(req: NextRequest) {
     }
 
     const feeMonth = new Date(date + "T00:00:00").getMonth() + 1;
+    const paymentMode = normalizePaymentMode(body.paymentMode);
 
     await appendDailyEntry({
       date,
@@ -99,6 +101,7 @@ export async function POST(req: NextRequest) {
       srNo: feeRecord.srNo,
       amount,
       feeMonth,
+      paymentMode,
     });
 
     await rebuildFeeRowFromLog(feeRecord);
@@ -108,8 +111,8 @@ export async function POST(req: NextRequest) {
       action: "create",
       resource: "payments",
       resourceId: feeRecord.srNo,
-      summary: `Payment ₹${amount} for ${studentName} on ${date}`,
-      details: { date, amount, feeMonth, className: feeRecord.className },
+      summary: `Payment ₹${amount} (${paymentMode}) for ${studentName} on ${date}`,
+      details: { date, amount, feeMonth, paymentMode, className: feeRecord.className },
       actor,
     });
     return NextResponse.json({ ok: true });
@@ -183,7 +186,15 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    await updateDailyEntry(entryId, newAmount);
+    const newPaymentMode =
+      body.paymentMode !== undefined
+        ? normalizePaymentMode(body.paymentMode)
+        : undefined;
+
+    await updateDailyEntry(entryId, {
+      amount: newAmount,
+      ...(newPaymentMode !== undefined ? { paymentMode: newPaymentMode } : {}),
+    });
 
     const feeRecord = await getFeeByName(studentName);
     if (!feeRecord) {

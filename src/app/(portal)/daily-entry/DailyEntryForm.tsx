@@ -20,6 +20,11 @@ import { usePortalRefresh } from "@/lib/use-portal-refresh";
 import { feesListUrl, portalFetch } from "@/lib/portal-fetch";
 import { sortByGradeThenName } from "@/lib/sort-by-grade";
 import type { DailyEntry } from "@/lib/sheets/dailyLog";
+import {
+  PAYMENT_MODES,
+  paymentModeLabel,
+  type PaymentMode,
+} from "@/lib/payment-mode";
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
@@ -88,6 +93,7 @@ export default function DailyEntryForm() {
   // Form state
   const [date, setDate] = useState(todayISO());
   const [amount, setAmount] = useState("");
+  const [paymentMode, setPaymentMode] = useState<PaymentMode>("cash");
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -99,6 +105,7 @@ export default function DailyEntryForm() {
   // Edit
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editAmount, setEditAmount] = useState("");
+  const [editPaymentMode, setEditPaymentMode] = useState<PaymentMode>("cash");
   const [editSaving, setEditSaving] = useState(false);
 
   // Delete confirm
@@ -193,7 +200,12 @@ export default function DailyEntryForm() {
       const res = await portalFetch("/api/daily-entry", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ studentName: selectedFee.studentName, date, amount: Number(amount) }),
+        body: JSON.stringify({
+          studentName: selectedFee.studentName,
+          date,
+          amount: Number(amount),
+          paymentMode,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed");
@@ -240,7 +252,13 @@ export default function DailyEntryForm() {
       const res = await portalFetch("/api/daily-entry", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ entryId: entry.id, newAmount: newAmt, studentName: entry.studentName, srNo: entry.srNo }),
+        body: JSON.stringify({
+          entryId: entry.id,
+          newAmount: newAmt,
+          studentName: entry.studentName,
+          srNo: entry.srNo,
+          paymentMode: editPaymentMode,
+        }),
       });
       if (!res.ok) throw new Error("Update failed");
       setEditingId(null);
@@ -374,6 +392,30 @@ export default function DailyEntryForm() {
             />
           </div>
 
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">
+              Payment mode
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              {PAYMENT_MODES.map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setPaymentMode(mode)}
+                  className={`px-3 py-2.5 text-sm font-medium rounded-lg border transition-colors ${
+                    paymentMode === mode
+                      ? mode === "cash"
+                        ? "bg-emerald-600 text-white border-emerald-600"
+                        : "bg-violet-600 text-white border-violet-600"
+                      : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"
+                  }`}
+                >
+                  {paymentModeLabel(mode)}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {error && (
             <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-600">
               <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
@@ -424,30 +466,61 @@ export default function DailyEntryForm() {
               <div key={entry.id} className="px-5 py-3 flex items-center gap-3">
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-slate-700">{formatDate(entry.date)}</p>
-                  <p className="text-xs text-slate-400 mt-0.5">{entry.className}</p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <p className="text-xs text-slate-400">{entry.className}</p>
+                    {entry.paymentMode && (
+                      <span
+                        className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
+                          entry.paymentMode === "online"
+                            ? "bg-violet-50 text-violet-700"
+                            : "bg-emerald-50 text-emerald-700"
+                        }`}
+                      >
+                        {paymentModeLabel(entry.paymentMode)}
+                      </span>
+                    )}
+                  </div>
                 </div>
                 {editingId === entry.id ? (
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <span className="text-sm text-slate-500">₹</span>
-                    <input
-                      type="number"
-                      value={editAmount}
-                      onChange={(e) => setEditAmount(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") handleEditSave(entry);
-                        if (e.key === "Escape") setEditingId(null);
-                      }}
-                      className="w-24 border border-blue-400 rounded px-2 py-1 text-sm focus:outline-none"
-                      autoFocus
-                      min={1}
-                    />
+                  <div className="flex flex-col items-end gap-2 shrink-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm text-slate-500">₹</span>
+                      <input
+                        type="number"
+                        value={editAmount}
+                        onChange={(e) => setEditAmount(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleEditSave(entry);
+                          if (e.key === "Escape") setEditingId(null);
+                        }}
+                        className="w-24 border border-blue-400 rounded px-2 py-1 text-sm focus:outline-none"
+                        autoFocus
+                        min={1}
+                      />
+                    </div>
+                    <div className="flex gap-1">
+                      {PAYMENT_MODES.map((mode) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          onClick={() => setEditPaymentMode(mode)}
+                          className={`text-xs px-2 py-1 rounded border ${
+                            editPaymentMode === mode
+                              ? "bg-blue-600 text-white border-blue-600"
+                              : "bg-white text-slate-500 border-slate-200"
+                          }`}
+                        >
+                          {paymentModeLabel(mode)}
+                        </button>
+                      ))}
+                    </div>
                     {editSaving ? (
                       <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
                     ) : (
-                      <>
+                      <div className="flex gap-1">
                         <button onClick={() => handleEditSave(entry)} className="text-green-600 hover:text-green-700" title="Save"><Check className="w-4 h-4" /></button>
                         <button onClick={() => setEditingId(null)} className="text-slate-400 hover:text-slate-600" title="Cancel"><X className="w-4 h-4" /></button>
-                      </>
+                      </div>
                     )}
                   </div>
                 ) : confirmDeleteId === entry.id ? (
@@ -466,8 +539,13 @@ export default function DailyEntryForm() {
                   <div className="flex items-center gap-2 shrink-0">
                     <span className="text-sm font-semibold text-green-700">{fmt(entry.amount)}</span>
                     <button
-                      onClick={() => { setEditingId(entry.id); setEditAmount(String(entry.amount)); setConfirmDeleteId(null); }}
-                      className="text-slate-300 hover:text-blue-500 transition-colors" title="Edit amount"
+                      onClick={() => {
+                        setEditingId(entry.id);
+                        setEditAmount(String(entry.amount));
+                        setEditPaymentMode(entry.paymentMode ?? "cash");
+                        setConfirmDeleteId(null);
+                      }}
+                      className="text-slate-300 hover:text-blue-500 transition-colors" title="Edit payment"
                     >
                       <Pencil className="w-3.5 h-3.5" />
                     </button>
@@ -485,9 +563,21 @@ export default function DailyEntryForm() {
         )}
 
         {entries.length > 0 && (
-          <div className="px-5 py-3 border-t border-slate-100 flex justify-between text-sm">
-            <span className="text-slate-500">{entries.length} payment{entries.length !== 1 ? "s" : ""}</span>
-            <span className="font-semibold text-green-700">{fmt(entries.reduce((s, e) => s + e.amount, 0))} total</span>
+          <div className="px-5 py-3 border-t border-slate-100 space-y-1 text-sm">
+            <div className="flex justify-between">
+              <span className="text-slate-500">{entries.length} payment{entries.length !== 1 ? "s" : ""}</span>
+              <span className="font-semibold text-green-700">
+                {fmt(entries.reduce((s, e) => s + e.amount, 0))} total
+              </span>
+            </div>
+            <div className="flex justify-between text-xs text-slate-500">
+              <span>
+                Cash: {fmt(entries.filter((e) => e.paymentMode !== "online").reduce((s, e) => s + e.amount, 0))}
+              </span>
+              <span>
+                Online: {fmt(entries.filter((e) => e.paymentMode === "online").reduce((s, e) => s + e.amount, 0))}
+              </span>
+            </div>
           </div>
         )}
       </div>
