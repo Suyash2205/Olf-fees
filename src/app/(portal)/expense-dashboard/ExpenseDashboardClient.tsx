@@ -224,12 +224,12 @@ export default function ExpenseDashboardClient() {
 
         <div className="hidden lg:block w-px h-8 bg-slate-200" />
 
-        <div className="flex items-center gap-2 flex-1 min-w-[180px]">
+        <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:gap-2 lg:flex-1 lg:min-w-[180px]">
           <Filter className="w-4 h-4 text-slate-400 shrink-0" />
           <select
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
-            className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 sm:py-1.5"
           >
             <option value="">All categories</option>
             {categories.map((c) => (
@@ -247,7 +247,7 @@ export default function ExpenseDashboardClient() {
           <div className="flex items-start justify-between">
             <div>
               <p className="text-sm text-slate-500">Total spent</p>
-              <p className="text-2xl font-bold text-slate-800 mt-1">{fmt(summary.total)}</p>
+              <p className="text-xl sm:text-2xl font-bold text-slate-800 mt-1">{fmt(summary.total)}</p>
               <p className="text-xs text-slate-400 mt-1">{summary.count} entries</p>
             </div>
             <div className="rounded-lg p-2.5 bg-blue-50 text-blue-600">
@@ -262,7 +262,7 @@ export default function ExpenseDashboardClient() {
               <p className="text-sm text-slate-500">
                 Avg per {granularity === "daily" ? "day" : granularity === "weekly" ? "week" : "month"}
               </p>
-              <p className="text-2xl font-bold text-slate-800 mt-1">
+              <p className="text-xl sm:text-2xl font-bold text-slate-800 mt-1">
                 {fmt(Math.round(summary.avgPerPeriod))}
               </p>
               <p className="text-xs text-slate-400 mt-1">Across {timeline.length} periods</p>
@@ -277,7 +277,7 @@ export default function ExpenseDashboardClient() {
           <div className="flex items-start justify-between">
             <div>
               <p className="text-sm text-slate-500">Cash vs Online</p>
-              <p className="text-2xl font-bold text-slate-800 mt-1">
+              <p className="text-xl sm:text-2xl font-bold text-slate-800 mt-1">
                 {cashPct.toFixed(0)}% cash
               </p>
               <p className="text-xs text-slate-400 mt-1">

@@ -228,12 +228,12 @@ export default function FeesDashboardClient() {
 
         <div className="hidden lg:block w-px h-8 bg-slate-200" />
 
-        <div className="flex items-center gap-2 flex-1 min-w-[180px]">
+        <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:gap-2 lg:flex-1 lg:min-w-[180px]">
           <Filter className="w-4 h-4 text-slate-400 shrink-0" />
           <select
             value={classFilter}
             onChange={(e) => setClassFilter(e.target.value)}
-            className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 sm:py-1.5"
           >
             <option value="">All classes</option>
             {classes.map((c) => (
@@ -251,7 +251,7 @@ export default function FeesDashboardClient() {
           <div className="flex items-start justify-between">
             <div>
               <p className="text-sm text-slate-500">Total collected</p>
-              <p className="text-2xl font-bold text-green-700 mt-1">
+              <p className="text-xl sm:text-xl sm:text-2xl font-bold text-green-700 mt-1 break-words">
                 {fmt(summary.totalCollected)}
               </p>
               <p className="text-xs text-slate-400 mt-1">
@@ -268,7 +268,7 @@ export default function FeesDashboardClient() {
           <div className="flex items-start justify-between">
             <div>
               <p className="text-sm text-slate-500">Pending balance</p>
-              <p className="text-2xl font-bold text-red-600 mt-1">
+              <p className="text-xl sm:text-2xl font-bold text-red-600 mt-1">
                 {fmt(summary.totalPending)}
               </p>
               <p className="text-xs text-slate-400 mt-1">
@@ -285,7 +285,7 @@ export default function FeesDashboardClient() {
           <div className="flex items-start justify-between">
             <div>
               <p className="text-sm text-slate-500">Collected in period</p>
-              <p className="text-2xl font-bold text-slate-800 mt-1">
+              <p className="text-xl sm:text-2xl font-bold text-slate-800 mt-1">
                 {fmt(summary.periodCollected)}
               </p>
               <p className="text-xs text-slate-400 mt-1">
@@ -302,7 +302,7 @@ export default function FeesDashboardClient() {
           <div className="flex items-start justify-between">
             <div>
               <p className="text-sm text-slate-500">Fully paid</p>
-              <p className="text-2xl font-bold text-slate-800 mt-1">
+              <p className="text-xl sm:text-2xl font-bold text-slate-800 mt-1">
                 {summary.fullyPaid}
               </p>
               <p className="text-xs text-slate-400 mt-1">

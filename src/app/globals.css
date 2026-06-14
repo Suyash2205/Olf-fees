@@ -16,6 +16,28 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  overflow-x: hidden;
+}
+
+@layer components {
+  .portal-title {
+    font-size: 1.25rem;
+    line-height: 1.75rem;
+    font-weight: 700;
+    color: #1e293b;
+  }
+  @media (min-width: 640px) {
+    .portal-title {
+      font-size: 1.5rem;
+      line-height: 2rem;
+    }
+  }
+  .portal-subtitle {
+    margin-top: 0.25rem;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    color: #64748b;
+  }
 }
 
 .scrollbar-thin {

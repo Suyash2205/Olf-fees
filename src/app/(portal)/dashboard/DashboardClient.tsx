@@ -100,7 +100,7 @@ export default function DashboardClient() {
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-sm text-slate-500">{label}</p>
-                <p className="text-2xl font-bold text-slate-800 mt-1">{value}</p>
+                <p className="text-xl sm:text-2xl font-bold text-slate-800 mt-1 break-words">{value}</p>
                 <p className="text-xs text-slate-400 mt-1">{sub}</p>
               </div>
               <div className={`rounded-lg p-2.5 ${color}`}>
@@ -112,19 +112,19 @@ export default function DashboardClient() {
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 p-6">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-4">
           <div className="flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 text-slate-400" />
+            <TrendingUp className="w-4 h-4 text-slate-400 shrink-0" />
             <h2 className="font-semibold text-slate-700">Fee Collection Progress</h2>
           </div>
-          <span className="text-sm font-medium text-slate-600">{collectionRate.toFixed(1)}% collected</span>
+          <span className="text-sm font-medium text-slate-600 shrink-0">{collectionRate.toFixed(1)}% collected</span>
         </div>
         <div className="w-full bg-slate-100 rounded-full h-3">
           <div className="bg-blue-600 h-3 rounded-full transition-all" style={{ width: `${Math.min(collectionRate, 100)}%` }} />
         </div>
-        <div className="flex justify-between mt-2 text-xs text-slate-400">
-          <span>Collected: {fmt(totalCollected)}</span>
-          <span>Expected: {fmt(totalExpected)}</span>
+        <div className="flex flex-col gap-1 sm:flex-row sm:justify-between mt-2 text-xs text-slate-400">
+          <span className="truncate">Collected: {fmt(totalCollected)}</span>
+          <span className="truncate">Expected: {fmt(totalExpected)}</span>
         </div>
       </div>
 
