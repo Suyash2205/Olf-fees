@@ -22,6 +22,7 @@ export const config = {
     "/fees/:path*",
     "/fees-dashboard/:path*",
     "/daily-entry/:path*",
+    "/other-fees/:path*",
     "/daily-expense/:path*",
     "/expense-dashboard/:path*",
     "/pending/:path*",
