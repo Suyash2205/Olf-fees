@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import { Menu, School } from "lucide-react";
+import { Menu } from "lucide-react";
 import Sidebar from "./Sidebar";
+import SchoolLogo from "@/components/SchoolLogo";
 
 export default function PortalShell({ children }: { children: React.ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -44,11 +45,9 @@ export default function PortalShell({ children }: { children: React.ReactNode })
             <Menu className="h-5 w-5" />
           </button>
           <div className="flex min-w-0 flex-1 items-center gap-2">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-600">
-              <School className="h-4 w-4 text-white" />
-            </div>
+            <SchoolLogo size={32} />
             <div className="min-w-0">
-              <p className="truncate text-sm font-bold text-slate-800">OLF High School</p>
+              <p className="truncate text-sm font-bold text-slate-800">Our Lady of Fatima School</p>
               <p className="truncate text-xs text-slate-400">Admin Portal</p>
             </div>
           </div>

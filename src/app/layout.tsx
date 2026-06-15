@@ -6,8 +6,9 @@ import SessionProvider from "@/components/SessionProvider";
 const geist = Geist({ subsets: ["latin"], variable: "--font-geist-sans" });
 
 export const metadata: Metadata = {
-  title: "OLF High School — Admin Portal",
-  description: "Admission and fees management portal for OLF High School",
+  title: "Our Lady of Fatima School — Admin Portal",
+  description:
+    "Admission and fees management portal for Our Lady of Fatima School (OLF High School)",
 };
 
 export const viewport: Viewport = {

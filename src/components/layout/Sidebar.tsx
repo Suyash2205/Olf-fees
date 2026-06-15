@@ -11,7 +11,6 @@ import {
   IndianRupee,
   AlertCircle,
   GraduationCap,
-  School,
   RefreshCw,
   LogOut,
   BarChart3,
@@ -23,6 +22,7 @@ import {
   Shield,
   X,
 } from "lucide-react";
+import SchoolLogo from "@/components/SchoolLogo";
 
 type NavItem = { href: string; label: string; icon: LucideIcon };
 
@@ -118,12 +118,10 @@ export default function Sidebar({ open = false, onClose }: SidebarProps) {
           <X className="h-5 w-5" />
         </button>
         <div className="flex items-center gap-3 pr-8 lg:pr-0">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-600">
-            <School className="h-5 w-5 text-white" />
-          </div>
+          <SchoolLogo size={36} priority />
           <div className="min-w-0">
-            <p className="font-bold leading-tight text-slate-800">OLF High School</p>
-            <p className="text-xs text-slate-400">Admin Portal</p>
+            <p className="font-bold leading-tight text-slate-800">Our Lady of Fatima School</p>
+            <p className="text-xs text-slate-400">OLF High School · Admin Portal</p>
           </div>
         </div>
       </div>
