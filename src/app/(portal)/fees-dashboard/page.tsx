@@ -7,7 +7,7 @@ export default function FeesDashboardPage() {
       <div>
         <h1 className="portal-title">Fees Dashboard</h1>
         <p className="text-sm text-slate-500 mt-1">
-          Interactive fee collection analytics — payments, classes, and quarters
+          School fees, other fees (bag, bus, books), and combined income analytics
         </p>
       </div>
       <Suspense>

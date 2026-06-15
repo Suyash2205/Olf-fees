@@ -15,17 +15,30 @@ import {
   X,
   RefreshCw,
   MessageSquare,
+  Tag,
+  Plus,
 } from "lucide-react";
 import type { FeeRecord } from "@/lib/sheets/fees";
+import type { DailyEntry } from "@/lib/sheets/dailyLog";
+import type { OtherFeeEntry } from "@/lib/sheets/otherFeesLog";
+import { splitIntoQuarters } from "@/lib/fees/structure";
 import { usePortalRefresh } from "@/lib/use-portal-refresh";
 import { feesListUrl, portalFetch } from "@/lib/portal-fetch";
 import { sortByGradeThenName } from "@/lib/sort-by-grade";
-import type { DailyEntry } from "@/lib/sheets/dailyLog";
 import {
   PAYMENT_MODES,
   paymentModeLabel,
   type PaymentMode,
 } from "@/lib/payment-mode";
+
+const SCHOOL_FEE_TYPE = "School Fees";
+
+type HistoryFilter = "all" | "school" | "other";
+type HistoryKind = "school" | "other";
+
+type SchoolHistoryItem = DailyEntry & { kind: "school"; sortKey: string };
+type OtherHistoryItem = OtherFeeEntry & { kind: "other"; sortKey: string };
+type HistoryItem = SchoolHistoryItem | OtherHistoryItem;
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
@@ -42,13 +55,28 @@ function formatDate(iso: string) {
   return `${d} ${months[Number(m) - 1]} ${y}`;
 }
 
+function historyKey(kind: HistoryKind, id: string) {
+  return `${kind}:${id}`;
+}
+
+function normalizeDateForSort(iso: string) {
+  return iso || "0000-00-00";
+}
+
 export default function DailyEntryForm() {
   const searchParams = useSearchParams();
   const initialStudentName = searchParams.get("student") ?? undefined;
+  const initialFeeType = searchParams.get("type") ?? undefined;
 
   const [fees, setFees] = useState<FeeRecord[]>([]);
   const [feesLoading, setFeesLoading] = useState(true);
   const [feesError, setFeesError] = useState<string | null>(null);
+
+  const [otherFeeTypes, setOtherFeeTypes] = useState<string[]>([]);
+  const [feeType, setFeeType] = useState(SCHOOL_FEE_TYPE);
+  const [newFeeType, setNewFeeType] = useState("");
+  const [showNewFeeType, setShowNewFeeType] = useState(false);
+  const [addingFeeType, setAddingFeeType] = useState(false);
 
   const loadFees = useCallback(async () => {
     setFeesLoading(true);
@@ -65,12 +93,36 @@ export default function DailyEntryForm() {
     }
   }, []);
 
+  const loadFeeTypes = useCallback(async () => {
+    try {
+      const res = await portalFetch("/api/other-fees/categories");
+      if (!res.ok) return;
+      const types: string[] = await res.json();
+      setOtherFeeTypes(types.filter((t) => t !== SCHOOL_FEE_TYPE));
+    } catch { /* silent */ }
+  }, []);
+
   useEffect(() => {
     loadFees();
-  }, [loadFees]);
+    loadFeeTypes();
+  }, [loadFees, loadFeeTypes]);
   usePortalRefresh(loadFees);
 
-  // Pre-select student once fees load
+  const feeTypeOptions = useMemo(
+    () => [SCHOOL_FEE_TYPE, ...otherFeeTypes],
+    [otherFeeTypes]
+  );
+
+  const isSchoolFee = feeType === SCHOOL_FEE_TYPE;
+
+  useEffect(() => {
+    if (!initialFeeType) return;
+    const match = feeTypeOptions.find(
+      (t) => t.toLowerCase() === initialFeeType.toLowerCase()
+    );
+    if (match) setFeeType(match);
+  }, [initialFeeType, feeTypeOptions]);
+
   const initialSelected = useMemo(() => {
     if (!initialStudentName || fees.length === 0) return null;
     return fees.find((f) => f.studentName === initialStudentName) ?? null;
@@ -82,7 +134,6 @@ export default function DailyEntryForm() {
   const comboRef = useRef<HTMLDivElement>(null);
   const didPreselect = useRef(false);
 
-  // Apply pre-selection once
   useEffect(() => {
     if (!didPreselect.current && initialSelected) {
       didPreselect.current = true;
@@ -91,29 +142,33 @@ export default function DailyEntryForm() {
     }
   }, [initialSelected]);
 
-  // Form state
   const [date, setDate] = useState(todayISO());
   const [amount, setAmount] = useState("");
-  const [comment, setComment] = useState("");
+  const [notes, setNotes] = useState("");
   const [paymentMode, setPaymentMode] = useState<PaymentMode>("cash");
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // History
-  const [entries, setEntries] = useState<DailyEntry[]>([]);
+  const [schoolEntries, setSchoolEntries] = useState<DailyEntry[]>([]);
+  const [otherEntries, setOtherEntries] = useState<OtherFeeEntry[]>([]);
   const [loadingEntries, setLoadingEntries] = useState(false);
+  const [historyFilter, setHistoryFilter] = useState<HistoryFilter>("all");
 
-  // Edit
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editAmount, setEditAmount] = useState("");
-  const [editComment, setEditComment] = useState("");
+  const [editNotes, setEditNotes] = useState("");
   const [editPaymentMode, setEditPaymentMode] = useState<PaymentMode>("cash");
+  const [editFeeType, setEditFeeType] = useState("");
   const [editSaving, setEditSaving] = useState(false);
 
-  // Delete confirm
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [confirmDeleteKey, setConfirmDeleteKey] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  const quarterAmounts = useMemo(() => {
+    if (!selectedFee || selectedFee.totalFee <= 0) return null;
+    return splitIntoQuarters(selectedFee.totalFee);
+  }, [selectedFee]);
 
   const suggestions = useMemo(() => {
     if (!inputValue || selectedFee) return [];
@@ -130,6 +185,49 @@ export default function DailyEntryForm() {
     ).slice(0, 10);
   }, [inputValue, selectedFee, fees]);
 
+  const historyItems = useMemo((): HistoryItem[] => {
+    const school: SchoolHistoryItem[] = schoolEntries.map((e) => ({
+      ...e,
+      kind: "school",
+      sortKey: normalizeDateForSort(e.date),
+    }));
+    const other: OtherHistoryItem[] = otherEntries.map((e) => ({
+      ...e,
+      kind: "other",
+      sortKey: normalizeDateForSort(e.date),
+    }));
+    const merged = [...school, ...other].sort((a, b) => b.sortKey.localeCompare(a.sortKey));
+    if (historyFilter === "school") return merged.filter((e) => e.kind === "school");
+    if (historyFilter === "other") return merged.filter((e) => e.kind === "other");
+    return merged;
+  }, [schoolEntries, otherEntries, historyFilter]);
+
+  const historyStats = useMemo(() => {
+    const schoolTotal = schoolEntries.reduce((s, e) => s + e.amount, 0);
+    const otherTotal = otherEntries.reduce((s, e) => s + e.amount, 0);
+    const schoolCash = schoolEntries
+      .filter((e) => e.paymentMode !== "online")
+      .reduce((s, e) => s + e.amount, 0);
+    const schoolOnline = schoolEntries
+      .filter((e) => e.paymentMode === "online")
+      .reduce((s, e) => s + e.amount, 0);
+    const otherCash = otherEntries
+      .filter((e) => e.paymentMode !== "online")
+      .reduce((s, e) => s + e.amount, 0);
+    const otherOnline = otherEntries
+      .filter((e) => e.paymentMode === "online")
+      .reduce((s, e) => s + e.amount, 0);
+    return {
+      schoolCount: schoolEntries.length,
+      otherCount: otherEntries.length,
+      schoolTotal,
+      otherTotal,
+      grandTotal: schoolTotal + otherTotal,
+      cashTotal: schoolCash + otherCash,
+      onlineTotal: schoolOnline + otherOnline,
+    };
+  }, [schoolEntries, otherEntries]);
+
   useEffect(() => {
     function onClickOutside(e: MouseEvent) {
       if (comboRef.current && !comboRef.current.contains(e.target as Node)) {
@@ -139,37 +237,6 @@ export default function DailyEntryForm() {
     document.addEventListener("mousedown", onClickOutside);
     return () => document.removeEventListener("mousedown", onClickOutside);
   }, []);
-
-  useEffect(() => {
-    if (!selectedFee) {
-      setEntries([]);
-      return;
-    }
-    setLoadingEntries(true);
-    portalFetch(
-      `/api/daily-entry?srNo=${encodeURIComponent(selectedFee.srNo)}&reconcile=1`
-    )
-      .then((r) => r.json())
-      .then(async (data) => {
-        setEntries(Array.isArray(data) ? data : []);
-        await refreshStudentFee(selectedFee.studentName);
-      })
-      .catch(() => setEntries([]))
-      .finally(() => setLoadingEntries(false));
-  }, [selectedFee?.srNo]);
-
-  function selectStudent(fee: FeeRecord) {
-    setSelectedFee(fee);
-    setInputValue(`${fee.studentName} (${fee.className})`);
-    setShowDropdown(false);
-    setError(null);
-  }
-
-  function clearSelection() {
-    setSelectedFee(null);
-    setInputValue("");
-    setEntries([]);
-  }
 
   async function refreshStudentFee(studentName: string) {
     try {
@@ -182,12 +249,83 @@ export default function DailyEntryForm() {
     } catch { /* silent */ }
   }
 
-  async function refreshEntries(srNo: string) {
+  const refreshAllEntries = useCallback(async (srNo: string, reconcile = false) => {
+    setLoadingEntries(true);
     try {
-      const res = await portalFetch(`/api/daily-entry?srNo=${encodeURIComponent(srNo)}`);
+      const schoolUrl = `/api/daily-entry?srNo=${encodeURIComponent(srNo)}${reconcile ? "&reconcile=1" : ""}`;
+      const [schoolRes, otherRes] = await Promise.all([
+        portalFetch(schoolUrl),
+        portalFetch(`/api/other-fees?srNo=${encodeURIComponent(srNo)}`),
+      ]);
+      const schoolData = await schoolRes.json();
+      const otherData = await otherRes.json();
+      setSchoolEntries(Array.isArray(schoolData) ? schoolData : []);
+      if (otherData?.entries) {
+        setOtherEntries(Array.isArray(otherData.entries) ? otherData.entries : []);
+        if (otherData.feeTypes?.length) {
+          setOtherFeeTypes(
+            otherData.feeTypes.filter((t: string) => t !== SCHOOL_FEE_TYPE)
+          );
+        }
+      } else {
+        setOtherEntries([]);
+      }
+    } catch {
+      setSchoolEntries([]);
+      setOtherEntries([]);
+    } finally {
+      setLoadingEntries(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!selectedFee) {
+      setSchoolEntries([]);
+      setOtherEntries([]);
+      return;
+    }
+    refreshAllEntries(selectedFee.srNo, true).then(() =>
+      refreshStudentFee(selectedFee.studentName)
+    );
+  }, [selectedFee?.srNo, refreshAllEntries]);
+
+  function selectStudent(fee: FeeRecord) {
+    setSelectedFee(fee);
+    setInputValue(`${fee.studentName} (${fee.className})`);
+    setShowDropdown(false);
+    setError(null);
+  }
+
+  function clearSelection() {
+    setSelectedFee(null);
+    setInputValue("");
+    setSchoolEntries([]);
+    setOtherEntries([]);
+  }
+
+  async function handleAddFeeType() {
+    const name = newFeeType.trim();
+    if (!name) return;
+    setAddingFeeType(true);
+    setError(null);
+    try {
+      const res = await portalFetch("/api/other-fees/categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
       const data = await res.json();
-      if (Array.isArray(data)) setEntries(data);
-    } catch { /* silent */ }
+      if (!res.ok) throw new Error(data.error ?? "Failed");
+      const types = (data.feeTypes ?? []).filter((t: string) => t !== SCHOOL_FEE_TYPE);
+      setOtherFeeTypes(types);
+      setFeeType(data.feeType ?? name);
+      setNewFeeType("");
+      setShowNewFeeType(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not add fee type");
+    } finally {
+      setAddingFeeType(false);
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -196,30 +334,53 @@ export default function DailyEntryForm() {
       setError("Select a student and enter a valid amount.");
       return;
     }
+    if (!isSchoolFee && feeType.toLowerCase() === "other" && !notes.trim()) {
+      setError('Notes are required when fee type is "Other".');
+      return;
+    }
+
     setSaving(true);
     setError(null);
     setSuccess(false);
     try {
-      const res = await portalFetch("/api/daily-entry", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          studentName: selectedFee.studentName,
-          date,
-          amount: Number(amount),
-          paymentMode,
-          comment: comment.trim(),
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed");
+      if (isSchoolFee) {
+        const res = await portalFetch("/api/daily-entry", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            studentName: selectedFee.studentName,
+            date,
+            amount: Number(amount),
+            paymentMode,
+            comment: notes.trim(),
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "Failed");
+      } else {
+        const res = await portalFetch("/api/other-fees", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            studentName: selectedFee.studentName,
+            date,
+            feeType,
+            amount: Number(amount),
+            paymentMode,
+            notes: notes.trim(),
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "Failed");
+      }
+
       setSuccess(true);
       setAmount("");
-      setComment("");
+      setNotes("");
       setTimeout(() => setSuccess(false), 3000);
       await Promise.all([
         refreshStudentFee(selectedFee.studentName),
-        refreshEntries(selectedFee.srNo),
+        refreshAllEntries(selectedFee.srNo),
       ]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
@@ -228,64 +389,110 @@ export default function DailyEntryForm() {
     }
   }
 
-  async function handleDelete(entry: DailyEntry) {
+  async function handleDelete(item: HistoryItem) {
     setDeleting(true);
     setError(null);
     try {
-      const res = await portalFetch("/api/daily-entry", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          entryId: entry.id,
-          studentName: entry.studentName,
-          srNo: entry.srNo,
-          date: entry.date,
-          amount: entry.amount,
-          feeMonth: entry.feeMonth,
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? "Delete failed");
-      setConfirmDeleteId(null);
-      await Promise.all([
-        refreshStudentFee(entry.studentName),
-        refreshEntries(entry.srNo),
-      ]);
+      if (item.kind === "school") {
+        const res = await portalFetch("/api/daily-entry", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            entryId: item.id,
+            studentName: item.studentName,
+            srNo: item.srNo,
+            date: item.date,
+            amount: item.amount,
+            feeMonth: item.feeMonth,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error ?? "Delete failed");
+        await refreshStudentFee(item.studentName);
+      } else {
+        const res = await portalFetch("/api/other-fees", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            entryId: item.id,
+            srNo: item.srNo,
+            date: item.date,
+            amount: item.amount,
+            feeType: item.feeType,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error ?? "Delete failed");
+      }
+      setConfirmDeleteKey(null);
+      await refreshAllEntries(item.srNo);
     } catch (err) {
-      setConfirmDeleteId(null);
-      setError(err instanceof Error ? err.message : "Could not delete payment");
+      setConfirmDeleteKey(null);
+      setError(err instanceof Error ? err.message : "Could not delete entry");
     } finally {
       setDeleting(false);
     }
   }
 
-  async function handleEditSave(entry: DailyEntry) {
+  async function handleEditSave(item: HistoryItem) {
     const newAmt = Number(editAmount);
     if (!newAmt || newAmt <= 0) return;
+    if (item.kind === "other" && editFeeType.toLowerCase() === "other" && !editNotes.trim()) {
+      setError('Notes are required when fee type is "Other".');
+      return;
+    }
+
     setEditSaving(true);
     try {
-      const res = await portalFetch("/api/daily-entry", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          entryId: entry.id,
-          newAmount: newAmt,
-          studentName: entry.studentName,
-          srNo: entry.srNo,
-          paymentMode: editPaymentMode,
-          comment: editComment.trim(),
-        }),
-      });
-      if (!res.ok) throw new Error("Update failed");
-      setEditingId(null);
-      await Promise.all([
-        refreshStudentFee(entry.studentName),
-        refreshEntries(entry.srNo),
-      ]);
+      if (item.kind === "school") {
+        const res = await portalFetch("/api/daily-entry", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            entryId: item.id,
+            newAmount: newAmt,
+            studentName: item.studentName,
+            srNo: item.srNo,
+            paymentMode: editPaymentMode,
+            comment: editNotes.trim(),
+          }),
+        });
+        if (!res.ok) throw new Error("Update failed");
+        await refreshStudentFee(item.studentName);
+      } else {
+        const res = await portalFetch("/api/other-fees", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            entryId: item.id,
+            amount: newAmt,
+            paymentMode: editPaymentMode,
+            feeType: editFeeType,
+            notes: editNotes.trim(),
+          }),
+        });
+        if (!res.ok) throw new Error("Update failed");
+      }
+      setEditingKey(null);
+      await refreshAllEntries(item.srNo);
     } catch {
-      // stay in edit mode on error
+      /* stay in edit */
     } finally {
       setEditSaving(false);
+    }
+  }
+
+  function startEdit(item: HistoryItem) {
+    setEditingKey(historyKey(item.kind, item.id));
+    setEditAmount(String(item.amount));
+    setEditPaymentMode(item.paymentMode ?? "cash");
+    setConfirmDeleteKey(null);
+    if (item.kind === "school") {
+      setEditNotes(item.comment ?? "");
+      setEditFeeType(SCHOOL_FEE_TYPE);
+    } else {
+      setEditNotes(item.notes);
+      setEditFeeType(item.feeType);
     }
   }
 
@@ -309,9 +516,10 @@ export default function DailyEntryForm() {
     );
   }
 
+  const hasHistory = schoolEntries.length + otherEntries.length > 0;
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      {/* Left: form */}
       <div className="space-y-5">
         <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
           <h2 className="font-semibold text-slate-800">Record Payment</h2>
@@ -325,7 +533,7 @@ export default function DailyEntryForm() {
                 value={inputValue}
                 onChange={(e) => {
                   setInputValue(e.target.value);
-                  if (selectedFee) { setSelectedFee(null); setEntries([]); }
+                  if (selectedFee) { setSelectedFee(null); setSchoolEntries([]); setOtherEntries([]); }
                   setShowDropdown(true);
                 }}
                 onFocus={() => { if (!selectedFee && inputValue) setShowDropdown(true); }}
@@ -358,15 +566,17 @@ export default function DailyEntryForm() {
           {selectedFee && (
             <div className="bg-slate-50 rounded-lg px-4 py-3 text-sm space-y-1.5">
               <div className="flex justify-between">
-                <span className="text-slate-500">Total Fee</span>
+                <span className="text-slate-500">Annual fee</span>
                 <span className="font-medium">{fmt(selectedFee.totalFee)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-500">Per Quarter</span>
-                <span className="font-medium">{selectedFee.totalFee > 0 ? fmt(selectedFee.totalFee / 4) : "—"}</span>
+                <span className="text-slate-500">Per quarter</span>
+                <span className="font-medium">
+                  {quarterAmounts ? fmt(quarterAmounts[0]) : "—"}
+                </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-500">Paid so far</span>
+                <span className="text-slate-500">School fees paid</span>
                 <span className="font-medium text-green-700">{fmt(selectedFee.totalPaid)}</span>
               </div>
               <div className="flex justify-between border-t border-slate-200 pt-1.5 mt-1">
@@ -375,15 +585,75 @@ export default function DailyEntryForm() {
                   {fmt(selectedFee.balance)}
                 </span>
               </div>
+              <p className="text-[11px] text-slate-400 pt-1">
+                Fee &amp; discount are set in Admissions — they appear here automatically.
+              </p>
             </div>
           )}
         </div>
 
         <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
           <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">
+              <Tag className="inline w-3.5 h-3.5 mr-1 text-slate-400" />
+              Fee type
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {feeTypeOptions.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => {
+                    setFeeType(t);
+                    setAmount("");
+                    setNotes("");
+                    setError(null);
+                  }}
+                  className={`px-3 py-1.5 text-sm font-medium rounded-lg border transition-colors ${
+                    feeType === t
+                      ? t === SCHOOL_FEE_TYPE
+                        ? "bg-blue-600 text-white border-blue-600"
+                        : "bg-violet-600 text-white border-violet-600"
+                      : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"
+                  }`}
+                >
+                  {t}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => setShowNewFeeType((v) => !v)}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-sm border border-dashed border-slate-300 rounded-lg text-slate-500 hover:bg-slate-50"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                New type
+              </button>
+            </div>
+            {showNewFeeType && (
+              <div className="flex gap-2 mt-2">
+                <input
+                  type="text"
+                  value={newFeeType}
+                  onChange={(e) => setNewFeeType(e.target.value)}
+                  placeholder="e.g. Uniform"
+                  className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <button
+                  type="button"
+                  disabled={addingFeeType || !newFeeType.trim()}
+                  onClick={handleAddFeeType}
+                  className="px-3 py-2 text-sm bg-slate-800 text-white rounded-lg disabled:opacity-50"
+                >
+                  {addingFeeType ? <Loader2 className="w-4 h-4 animate-spin" /> : "Add"}
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">
               <CalendarDays className="inline w-3.5 h-3.5 mr-1 text-slate-400" />
-              Payment Date
+              Payment date
             </label>
             <input
               type="date"
@@ -398,20 +668,68 @@ export default function DailyEntryForm() {
               <IndianRupee className="inline w-3.5 h-3.5 mr-1 text-slate-400" />
               Amount (₹)
             </label>
+            {isSchoolFee && selectedFee && quarterAmounts && (
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {(["Q1", "Q2", "Q3", "Q4"] as const).map((label, i) => (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => setAmount(String(quarterAmounts[i]))}
+                    className="text-xs px-2.5 py-1 rounded-full border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                  >
+                    {label} {fmt(quarterAmounts[i])}
+                  </button>
+                ))}
+                {selectedFee.balance > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setAmount(String(selectedFee.balance))}
+                    className="text-xs px-2.5 py-1 rounded-full border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+                  >
+                    Balance {fmt(selectedFee.balance)}
+                  </button>
+                )}
+              </div>
+            )}
             <input
               type="number"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              placeholder="e.g. 7950"
+              placeholder={isSchoolFee ? "Quarter amount or partial payment" : "Enter amount"}
               min={1}
               className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            {isSchoolFee && (
+              <p className="text-xs text-slate-400 mt-1">
+                Use quick-fill for a full quarter, or enter a partial amount.
+              </p>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              <MessageSquare className="inline w-3.5 h-3.5 mr-1 text-slate-400" />
+              {isSchoolFee
+                ? <>Comment <span className="text-slate-400 font-normal">(optional)</span></>
+                : <>Notes {feeType.toLowerCase() === "other" ? "(required)" : "(optional)"}</>}
+            </label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder={
+                isSchoolFee
+                  ? "e.g. partial Q1 payment, receipt ref…"
+                  : feeType.toLowerCase() === "other"
+                    ? "Describe the fee…"
+                    : "Optional note"
+              }
+              rows={2}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">
-              Payment mode
-            </label>
+            <label className="block text-sm font-medium text-slate-700 mb-2">Payment mode</label>
             <div className="grid grid-cols-2 gap-2">
               {PAYMENT_MODES.map((mode) => (
                 <button
@@ -432,20 +750,6 @@ export default function DailyEntryForm() {
             </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              <MessageSquare className="inline w-3.5 h-3.5 mr-1 text-slate-400" />
-              Comment <span className="text-slate-400 font-normal">(optional)</span>
-            </label>
-            <textarea
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
-              placeholder="e.g. partial Q1 payment, receipt ref…"
-              rows={2}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-            />
-          </div>
-
           {error && (
             <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-600">
               <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
@@ -462,162 +766,222 @@ export default function DailyEntryForm() {
           <button
             type="submit"
             disabled={saving || !selectedFee}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-60 transition-colors"
+            className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 text-white text-sm font-medium rounded-lg disabled:opacity-60 transition-colors ${
+              isSchoolFee ? "bg-blue-600 hover:bg-blue-700" : "bg-violet-600 hover:bg-violet-700"
+            }`}
           >
-            {saving ? <><Loader2 className="w-4 h-4 animate-spin" />Saving...</> : "Record Payment"}
+            {saving ? <><Loader2 className="w-4 h-4 animate-spin" />Saving...</> : "Record payment"}
           </button>
         </form>
       </div>
 
-      {/* Right: payment history */}
-      <div className="bg-white rounded-xl border border-slate-200 flex flex-col">
-        <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
-          <History className="w-4 h-4 text-slate-400" />
-          <h2 className="font-semibold text-slate-800">
-            {selectedFee ? `${selectedFee.studentName}'s Payments` : "Payment History"}
-          </h2>
+      <div className="bg-white rounded-xl border border-slate-200 flex flex-col min-h-[320px]">
+        <div className="px-5 py-4 border-b border-slate-100 space-y-3">
+          <div className="flex items-center gap-2">
+            <History className="w-4 h-4 text-slate-400 shrink-0" />
+            <h2 className="font-semibold text-slate-800 truncate">
+              {selectedFee ? `${selectedFee.studentName}'s payments` : "Payment history"}
+            </h2>
+          </div>
+          {selectedFee && hasHistory && (
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div className="rounded-lg bg-slate-50 px-2 py-2">
+                <p className="text-[10px] uppercase tracking-wide text-slate-400">School</p>
+                <p className="text-sm font-semibold text-blue-700">{fmt(historyStats.schoolTotal)}</p>
+                <p className="text-[10px] text-slate-400">{historyStats.schoolCount} payments</p>
+              </div>
+              <div className="rounded-lg bg-slate-50 px-2 py-2">
+                <p className="text-[10px] uppercase tracking-wide text-slate-400">Other</p>
+                <p className="text-sm font-semibold text-violet-700">{fmt(historyStats.otherTotal)}</p>
+                <p className="text-[10px] text-slate-400">{historyStats.otherCount} fees</p>
+              </div>
+              <div className="rounded-lg bg-slate-50 px-2 py-2">
+                <p className="text-[10px] uppercase tracking-wide text-slate-400">Total</p>
+                <p className="text-sm font-semibold text-green-700">{fmt(historyStats.grandTotal)}</p>
+                <p className="text-[10px] text-slate-400">all types</p>
+              </div>
+            </div>
+          )}
+          {selectedFee && hasHistory && (
+            <div className="flex gap-1">
+              {(["all", "school", "other"] as const).map((f) => (
+                <button
+                  key={f}
+                  type="button"
+                  onClick={() => setHistoryFilter(f)}
+                  className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                    historyFilter === f
+                      ? "bg-slate-800 text-white border-slate-800"
+                      : "bg-white text-slate-500 border-slate-200 hover:border-slate-300"
+                  }`}
+                >
+                  {f === "all" ? "All" : f === "school" ? "School fees" : "Other fees"}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {!selectedFee ? (
-          <div className="flex-1 flex items-center justify-center py-16 text-slate-400 text-sm">
-            Select a student to view payment history
+          <div className="flex-1 flex items-center justify-center py-16 text-slate-400 text-sm px-4 text-center">
+            Select a student to view school fees and other payments together
           </div>
         ) : loadingEntries ? (
           <div className="flex-1 flex items-center justify-center py-16">
             <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
           </div>
-        ) : entries.length === 0 ? (
+        ) : historyItems.length === 0 ? (
           <div className="flex-1 flex items-center justify-center py-16 text-slate-400 text-sm">
             No payments recorded yet
           </div>
         ) : (
           <div className="divide-y divide-slate-50 overflow-y-auto max-h-[600px]">
-            {[...entries].reverse().map((entry) => (
-              <div key={entry.id} className="px-5 py-3 flex items-center gap-3">
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-slate-700">{formatDate(entry.date)}</p>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <p className="text-xs text-slate-400">{entry.className}</p>
-                    {entry.paymentMode && (
+            {historyItems.map((entry) => {
+              const key = historyKey(entry.kind, entry.id);
+              const typeLabel = entry.kind === "school" ? SCHOOL_FEE_TYPE : entry.feeType;
+              const noteText = entry.kind === "school" ? entry.comment : entry.notes;
+
+              return (
+                <div key={key} className="px-5 py-3 flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-700">{formatDate(entry.date)}</p>
+                    <div className="flex flex-wrap items-center gap-2 mt-0.5">
                       <span
-                        className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
-                          entry.paymentMode === "online"
-                            ? "bg-violet-50 text-violet-700"
-                            : "bg-emerald-50 text-emerald-700"
+                        className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
+                          entry.kind === "school"
+                            ? "bg-blue-50 text-blue-700"
+                            : "bg-violet-50 text-violet-700"
                         }`}
                       >
-                        {paymentModeLabel(entry.paymentMode)}
+                        {typeLabel}
                       </span>
-                    )}
-                  </div>
-                  {entry.comment && (
-                    <p className="text-xs text-slate-500 mt-1 line-clamp-2">{entry.comment}</p>
-                  )}
-                </div>
-                {editingId === entry.id ? (
-                  <div className="flex flex-col items-end gap-2 shrink-0 w-full sm:w-auto">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-sm text-slate-500">₹</span>
-                      <input
-                        type="number"
-                        value={editAmount}
-                        onChange={(e) => setEditAmount(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") handleEditSave(entry);
-                          if (e.key === "Escape") setEditingId(null);
-                        }}
-                        className="w-24 border border-blue-400 rounded px-2 py-1 text-sm focus:outline-none"
-                        autoFocus
-                        min={1}
-                      />
-                    </div>
-                    <div className="flex gap-1">
-                      {PAYMENT_MODES.map((mode) => (
-                        <button
-                          key={mode}
-                          type="button"
-                          onClick={() => setEditPaymentMode(mode)}
-                          className={`text-xs px-2 py-1 rounded border ${
-                            editPaymentMode === mode
-                              ? "bg-blue-600 text-white border-blue-600"
-                              : "bg-white text-slate-500 border-slate-200"
+                      {entry.paymentMode && (
+                        <span
+                          className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
+                            entry.paymentMode === "online"
+                              ? "bg-violet-50 text-violet-700"
+                              : "bg-emerald-50 text-emerald-700"
                           }`}
                         >
-                          {paymentModeLabel(mode)}
-                        </button>
-                      ))}
+                          {paymentModeLabel(entry.paymentMode)}
+                        </span>
+                      )}
                     </div>
-                    <textarea
-                      value={editComment}
-                      onChange={(e) => setEditComment(e.target.value)}
-                      placeholder="Optional comment"
-                      rows={2}
-                      className="w-full sm:w-40 text-xs border border-slate-200 rounded-lg px-2 py-1.5 resize-none"
-                    />
-                    {editSaving ? (
-                      <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
-                    ) : (
-                      <div className="flex gap-1">
-                        <button onClick={() => handleEditSave(entry)} className="text-green-600 hover:text-green-700" title="Save"><Check className="w-4 h-4" /></button>
-                        <button onClick={() => setEditingId(null)} className="text-slate-400 hover:text-slate-600" title="Cancel"><X className="w-4 h-4" /></button>
+                    {noteText && (
+                      <p className="text-xs text-slate-500 mt-1 line-clamp-2">{noteText}</p>
+                    )}
+                  </div>
+
+                  {editingKey === key ? (
+                    <div className="flex flex-col items-end gap-2 shrink-0 w-full sm:w-auto">
+                      {entry.kind === "other" && (
+                        <select
+                          value={editFeeType}
+                          onChange={(e) => setEditFeeType(e.target.value)}
+                          className="text-xs border border-slate-200 rounded px-2 py-1"
+                        >
+                          {otherFeeTypes.map((t) => (
+                            <option key={t} value={t}>{t}</option>
+                          ))}
+                        </select>
+                      )}
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm text-slate-500">₹</span>
+                        <input
+                          type="number"
+                          value={editAmount}
+                          onChange={(e) => setEditAmount(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleEditSave(entry);
+                            if (e.key === "Escape") setEditingKey(null);
+                          }}
+                          className="w-24 border border-blue-400 rounded px-2 py-1 text-sm focus:outline-none"
+                          autoFocus
+                          min={1}
+                        />
                       </div>
-                    )}
-                  </div>
-                ) : confirmDeleteId === entry.id ? (
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-xs text-slate-500">Delete?</span>
-                    {deleting ? (
-                      <Loader2 className="w-4 h-4 animate-spin text-red-500" />
-                    ) : (
-                      <>
-                        <button onClick={() => handleDelete(entry)} className="text-xs font-medium text-red-600 hover:text-red-700 px-2 py-0.5 rounded border border-red-200 hover:bg-red-50 transition-colors">Yes, delete</button>
-                        <button onClick={() => setConfirmDeleteId(null)} className="text-slate-400 hover:text-slate-600" title="Cancel"><X className="w-4 h-4" /></button>
-                      </>
-                    )}
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-sm font-semibold text-green-700">{fmt(entry.amount)}</span>
-                    <button
-                      onClick={() => {
-                        setEditingId(entry.id);
-                        setEditAmount(String(entry.amount));
-                        setEditComment(entry.comment ?? "");
-                        setEditPaymentMode(entry.paymentMode ?? "cash");
-                        setConfirmDeleteId(null);
-                      }}
-                      className="text-slate-300 hover:text-blue-500 transition-colors" title="Edit payment"
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => { setConfirmDeleteId(entry.id); setEditingId(null); }}
-                      className="text-slate-300 hover:text-red-500 transition-colors" title="Delete entry"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))}
+                      <div className="flex gap-1">
+                        {PAYMENT_MODES.map((mode) => (
+                          <button
+                            key={mode}
+                            type="button"
+                            onClick={() => setEditPaymentMode(mode)}
+                            className={`text-xs px-2 py-1 rounded border ${
+                              editPaymentMode === mode
+                                ? "bg-blue-600 text-white border-blue-600"
+                                : "bg-white text-slate-500 border-slate-200"
+                            }`}
+                          >
+                            {paymentModeLabel(mode)}
+                          </button>
+                        ))}
+                      </div>
+                      <textarea
+                        value={editNotes}
+                        onChange={(e) => setEditNotes(e.target.value)}
+                        placeholder={entry.kind === "school" ? "Optional comment" : "Notes"}
+                        rows={2}
+                        className="w-full sm:w-40 text-xs border border-slate-200 rounded-lg px-2 py-1.5 resize-none"
+                      />
+                      {editSaving ? (
+                        <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
+                      ) : (
+                        <div className="flex gap-1">
+                          <button onClick={() => handleEditSave(entry)} className="text-green-600 hover:text-green-700" title="Save"><Check className="w-4 h-4" /></button>
+                          <button onClick={() => setEditingKey(null)} className="text-slate-400 hover:text-slate-600" title="Cancel"><X className="w-4 h-4" /></button>
+                        </div>
+                      )}
+                    </div>
+                  ) : confirmDeleteKey === key ? (
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-xs text-slate-500">Delete?</span>
+                      {deleting ? (
+                        <Loader2 className="w-4 h-4 animate-spin text-red-500" />
+                      ) : (
+                        <>
+                          <button onClick={() => handleDelete(entry)} className="text-xs font-medium text-red-600 hover:text-red-700 px-2 py-0.5 rounded border border-red-200 hover:bg-red-50 transition-colors">Yes</button>
+                          <button onClick={() => setConfirmDeleteKey(null)} className="text-slate-400 hover:text-slate-600" title="Cancel"><X className="w-4 h-4" /></button>
+                        </>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className={`text-sm font-semibold ${entry.kind === "school" ? "text-green-700" : "text-violet-700"}`}>
+                        {fmt(entry.amount)}
+                      </span>
+                      <button
+                        onClick={() => startEdit(entry)}
+                        className="text-slate-300 hover:text-blue-500 transition-colors"
+                        title="Edit"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => { setConfirmDeleteKey(key); setEditingKey(null); }}
+                        className="text-slate-300 hover:text-red-500 transition-colors"
+                        title="Delete"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
 
-        {entries.length > 0 && (
+        {hasHistory && (
           <div className="px-5 py-3 border-t border-slate-100 space-y-1 text-sm">
             <div className="flex justify-between">
-              <span className="text-slate-500">{entries.length} payment{entries.length !== 1 ? "s" : ""}</span>
-              <span className="font-semibold text-green-700">
-                {fmt(entries.reduce((s, e) => s + e.amount, 0))} total
+              <span className="text-slate-500">
+                {historyStats.schoolCount + historyStats.otherCount} total entries
               </span>
+              <span className="font-semibold text-green-700">{fmt(historyStats.grandTotal)}</span>
             </div>
             <div className="flex justify-between text-xs text-slate-500">
-              <span>
-                Cash: {fmt(entries.filter((e) => e.paymentMode !== "online").reduce((s, e) => s + e.amount, 0))}
-              </span>
-              <span>
-                Online: {fmt(entries.filter((e) => e.paymentMode === "online").reduce((s, e) => s + e.amount, 0))}
-              </span>
+              <span>Cash: {fmt(historyStats.cashTotal)}</span>
+              <span>Online: {fmt(historyStats.onlineTotal)}</span>
             </div>
           </div>
         )}

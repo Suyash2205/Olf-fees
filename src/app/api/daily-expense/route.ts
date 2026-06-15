@@ -11,13 +11,12 @@ import {
   getExpenseCategories,
   updateExpenseEntry,
 } from "@/lib/sheets/dailyExpense";
+import { invalidateSheetCache } from "@/lib/sheets/read-cache";
 
 export async function GET() {
   try {
-    const [entries, categories] = await Promise.all([
-      getAllExpenseEntries(),
-      getExpenseCategories(),
-    ]);
+    const entries = await getAllExpenseEntries();
+    const categories = await getExpenseCategories();
     return NextResponse.json({ entries, categories });
   } catch (err) {
     console.error("GET daily-expense:", err);
@@ -61,6 +60,7 @@ export async function POST(req: NextRequest) {
       actor,
     });
 
+    invalidateSheetCache();
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("POST daily-expense:", err);
@@ -113,6 +113,7 @@ export async function PATCH(req: NextRequest) {
       actor,
     });
 
+    invalidateSheetCache();
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("PATCH daily-expense:", err);
@@ -144,6 +145,7 @@ export async function DELETE(req: NextRequest) {
       actor,
     });
 
+    invalidateSheetCache();
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("DELETE daily-expense:", err);

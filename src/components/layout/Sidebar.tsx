@@ -22,7 +22,6 @@ import {
   Database,
   Shield,
   X,
-  Wallet,
 } from "lucide-react";
 
 type NavItem = { href: string; label: string; icon: LucideIcon };
@@ -36,14 +35,10 @@ const GENERAL_ITEMS: NavItem[] = [
 
 const SCHOOL_FEE_ITEMS: NavItem[] = [
   { href: "/fees", label: "Fees", icon: IndianRupee },
-  { href: "/daily-entry", label: "Daily Fees Entry", icon: ClipboardList },
+  { href: "/daily-entry", label: "Record Fees", icon: ClipboardList },
   { href: "/fees-dashboard", label: "Fees Dashboard", icon: LineChart },
   { href: "/pending", label: "Pending Fees", icon: AlertCircle },
   { href: "/classes", label: "Classes", icon: GraduationCap },
-];
-
-const OTHER_FEE_ITEMS: NavItem[] = [
-  { href: "/other-fees", label: "Other Fees Entry", icon: Wallet },
 ];
 
 const EXPENSE_ITEMS: NavItem[] = [
@@ -136,7 +131,6 @@ export default function Sidebar({ open = false, onClose }: SidebarProps) {
       <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-1">
         <NavSection title="Overview" items={GENERAL_ITEMS} pathname={pathname} onClose={onClose} />
         <NavSection title="School fees" items={SCHOOL_FEE_ITEMS} pathname={pathname} onClose={onClose} />
-        <NavSection title="Other fees" items={OTHER_FEE_ITEMS} pathname={pathname} onClose={onClose} />
         <NavSection title="Expense" items={EXPENSE_ITEMS} pathname={pathname} onClose={onClose} />
         <NavSection title="Admin" items={ADMIN_ITEMS} pathname={pathname} onClose={onClose} />
       </nav>

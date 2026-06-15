@@ -3,6 +3,7 @@ import { recordAudit } from "@/lib/audit";
 import { normalizePaymentMode } from "@/lib/payment-mode";
 import { getPortalActor, isPortalActor, requirePortalActor } from "@/lib/portal-auth";
 import { revalidateTag } from "next/cache";
+import { invalidateSheetCache } from "@/lib/sheets/read-cache";
 import {
   getAllDailyEntries,
   getDailyEntriesForStudent,
@@ -14,6 +15,7 @@ import { getFeeByName, getFeeBySrNo, recalculateStudentFees, syncFeeRowAmounts }
 import { feeMonthForEntry, reconcileStudentPayments } from "@/lib/sheets/payment-sync";
 
 function invalidateFees() {
+  invalidateSheetCache();
   (revalidateTag as (tag: string, profile: string) => void)("fees", "default");
 }
 

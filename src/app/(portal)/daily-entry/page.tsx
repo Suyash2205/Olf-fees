@@ -5,9 +5,9 @@ export default function DailyEntryPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="portal-title">Daily Fees Entry</h1>
+        <h1 className="portal-title">Record Fees</h1>
         <p className="text-sm text-slate-500 mt-1">
-          Record individual fee payments — each entry is logged with date and amount, and synced to the Daily Fees Log tab on Google Sheets
+          Record school fees and one-time fees (bag, bus, books, etc.) for any student — synced to Google Sheets
         </p>
       </div>
       <Suspense>

@@ -32,7 +32,10 @@ const HEADERS = [
   "Comment",
 ] as const;
 
+let sheetReady = false;
+
 async function ensureSheet(): Promise<void> {
+  if (sheetReady) return;
   const sheets = getSheetsClient();
   const meta = await sheets.spreadsheets.get({ spreadsheetId: FEES_SHEET_ID });
   const sheetList = meta.data.sheets ?? [];
@@ -64,6 +67,7 @@ async function ensureSheet(): Promise<void> {
         valueInputOption: "USER_ENTERED",
         requestBody: { values: [[...HEADERS]] },
       });
+      sheetReady = true;
       return;
     }
   }
@@ -89,6 +93,7 @@ async function ensureSheet(): Promise<void> {
       requestBody: { values: [["Comment"]] },
     });
   }
+  sheetReady = true;
 }
 
 function parsePaymentMode(raw: string | undefined): PaymentMode | undefined {

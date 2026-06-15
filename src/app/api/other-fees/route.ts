@@ -12,21 +12,15 @@ import {
   getOtherFeeTypes,
   updateOtherFeeEntry,
 } from "@/lib/sheets/otherFeesLog";
+import { invalidateSheetCache } from "@/lib/sheets/read-cache";
 
 export async function GET(req: NextRequest) {
   const srNo = req.nextUrl.searchParams.get("srNo");
   try {
-    if (srNo) {
-      const [entries, feeTypes] = await Promise.all([
-        getOtherFeeEntriesForStudent(srNo),
-        getOtherFeeTypes(),
-      ]);
-      return NextResponse.json({ entries, feeTypes });
-    }
-    const [entries, feeTypes] = await Promise.all([
-      getAllOtherFeeEntries(),
-      getOtherFeeTypes(),
-    ]);
+    const entries = srNo
+      ? await getOtherFeeEntriesForStudent(srNo)
+      : await getAllOtherFeeEntries();
+    const feeTypes = await getOtherFeeTypes();
     return NextResponse.json({ entries, feeTypes });
   } catch (err) {
     console.error("GET other-fees:", err);
@@ -92,6 +86,7 @@ export async function POST(req: NextRequest) {
       actor,
     });
 
+    invalidateSheetCache();
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("POST other-fees:", err);
@@ -138,6 +133,7 @@ export async function PATCH(req: NextRequest) {
       actor,
     });
 
+    invalidateSheetCache();
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("PATCH other-fees:", err);
@@ -174,6 +170,7 @@ export async function DELETE(req: NextRequest) {
       actor,
     });
 
+    invalidateSheetCache();
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("DELETE other-fees:", err);
