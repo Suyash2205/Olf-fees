@@ -97,6 +97,8 @@ export async function POST(req: NextRequest) {
 
     const feeMonth = new Date(date + "T00:00:00").getMonth() + 1;
     const paymentMode = normalizePaymentMode(body.paymentMode);
+    const comment =
+      typeof body.comment === "string" ? body.comment.trim() : undefined;
 
     await appendDailyEntry({
       date,
@@ -106,6 +108,7 @@ export async function POST(req: NextRequest) {
       amount,
       feeMonth,
       paymentMode,
+      ...(comment ? { comment } : {}),
     });
 
     await rebuildFeeRowFromLog(feeRecord);
@@ -116,7 +119,7 @@ export async function POST(req: NextRequest) {
       resource: "payments",
       resourceId: feeRecord.srNo,
       summary: `Payment ₹${amount} (${paymentMode}) for ${studentName} on ${date}`,
-      details: { date, amount, feeMonth, paymentMode, className: feeRecord.className },
+      details: { date, amount, feeMonth, paymentMode, className: feeRecord.className, comment },
       actor,
     });
     return NextResponse.json({ ok: true });
@@ -205,10 +208,17 @@ export async function PATCH(req: NextRequest) {
       body.paymentMode !== undefined
         ? normalizePaymentMode(body.paymentMode)
         : undefined;
+    const comment =
+      body.comment !== undefined
+        ? typeof body.comment === "string"
+          ? body.comment.trim()
+          : ""
+        : undefined;
 
     await updateDailyEntry(entryId, {
       amount: newAmount,
       ...(newPaymentMode !== undefined ? { paymentMode: newPaymentMode } : {}),
+      ...(comment !== undefined ? { comment } : {}),
     });
 
     const feeRecord = await getFeeByName(studentName);

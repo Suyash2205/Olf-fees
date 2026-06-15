@@ -14,6 +14,7 @@ import {
   Check,
   X,
   RefreshCw,
+  MessageSquare,
 } from "lucide-react";
 import type { FeeRecord } from "@/lib/sheets/fees";
 import { usePortalRefresh } from "@/lib/use-portal-refresh";
@@ -93,6 +94,7 @@ export default function DailyEntryForm() {
   // Form state
   const [date, setDate] = useState(todayISO());
   const [amount, setAmount] = useState("");
+  const [comment, setComment] = useState("");
   const [paymentMode, setPaymentMode] = useState<PaymentMode>("cash");
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -105,6 +107,7 @@ export default function DailyEntryForm() {
   // Edit
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editAmount, setEditAmount] = useState("");
+  const [editComment, setEditComment] = useState("");
   const [editPaymentMode, setEditPaymentMode] = useState<PaymentMode>("cash");
   const [editSaving, setEditSaving] = useState(false);
 
@@ -205,12 +208,14 @@ export default function DailyEntryForm() {
           date,
           amount: Number(amount),
           paymentMode,
+          comment: comment.trim(),
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed");
       setSuccess(true);
       setAmount("");
+      setComment("");
       setTimeout(() => setSuccess(false), 3000);
       await Promise.all([
         refreshStudentFee(selectedFee.studentName),
@@ -268,6 +273,7 @@ export default function DailyEntryForm() {
           studentName: entry.studentName,
           srNo: entry.srNo,
           paymentMode: editPaymentMode,
+          comment: editComment.trim(),
         }),
       });
       if (!res.ok) throw new Error("Update failed");
@@ -426,6 +432,20 @@ export default function DailyEntryForm() {
             </div>
           </div>
 
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              <MessageSquare className="inline w-3.5 h-3.5 mr-1 text-slate-400" />
+              Comment <span className="text-slate-400 font-normal">(optional)</span>
+            </label>
+            <textarea
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              placeholder="e.g. partial Q1 payment, receipt ref…"
+              rows={2}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+            />
+          </div>
+
           {error && (
             <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-600">
               <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
@@ -490,9 +510,12 @@ export default function DailyEntryForm() {
                       </span>
                     )}
                   </div>
+                  {entry.comment && (
+                    <p className="text-xs text-slate-500 mt-1 line-clamp-2">{entry.comment}</p>
+                  )}
                 </div>
                 {editingId === entry.id ? (
-                  <div className="flex flex-col items-end gap-2 shrink-0">
+                  <div className="flex flex-col items-end gap-2 shrink-0 w-full sm:w-auto">
                     <div className="flex items-center gap-1.5">
                       <span className="text-sm text-slate-500">₹</span>
                       <input
@@ -524,6 +547,13 @@ export default function DailyEntryForm() {
                         </button>
                       ))}
                     </div>
+                    <textarea
+                      value={editComment}
+                      onChange={(e) => setEditComment(e.target.value)}
+                      placeholder="Optional comment"
+                      rows={2}
+                      className="w-full sm:w-40 text-xs border border-slate-200 rounded-lg px-2 py-1.5 resize-none"
+                    />
                     {editSaving ? (
                       <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
                     ) : (
@@ -552,6 +582,7 @@ export default function DailyEntryForm() {
                       onClick={() => {
                         setEditingId(entry.id);
                         setEditAmount(String(entry.amount));
+                        setEditComment(entry.comment ?? "");
                         setEditPaymentMode(entry.paymentMode ?? "cash");
                         setConfirmDeleteId(null);
                       }}

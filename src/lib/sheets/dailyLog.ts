@@ -15,6 +15,8 @@ export interface DailyEntry {
   feeMonth?: number;
   /** cash or online */
   paymentMode?: PaymentMode;
+  /** Optional note (e.g. partial payment, receipt ref) */
+  comment?: string;
 }
 
 export type DailyEntryInput = Omit<DailyEntry, "id">;
@@ -27,6 +29,7 @@ const HEADERS = [
   "Amount",
   "Fee Month",
   "Payment Mode",
+  "Comment",
 ] as const;
 
 async function ensureSheet(): Promise<void> {
@@ -57,7 +60,7 @@ async function ensureSheet(): Promise<void> {
       });
       await sheets.spreadsheets.values.update({
         spreadsheetId: FEES_SHEET_ID,
-        range: `${SHEET_NAME}!A1:G1`,
+        range: `${SHEET_NAME}!A1:H1`,
         valueInputOption: "USER_ENTERED",
         requestBody: { values: [[...HEADERS]] },
       });
@@ -67,7 +70,7 @@ async function ensureSheet(): Promise<void> {
 
   const headerRes = await sheets.spreadsheets.values.get({
     spreadsheetId: FEES_SHEET_ID,
-    range: `${SHEET_NAME}!A1:G1`,
+    range: `${SHEET_NAME}!A1:H1`,
   });
   const headers = headerRes.data.values?.[0] ?? [];
   if (headers[6] !== "Payment Mode") {
@@ -76,6 +79,14 @@ async function ensureSheet(): Promise<void> {
       range: `${SHEET_NAME}!G1`,
       valueInputOption: "USER_ENTERED",
       requestBody: { values: [["Payment Mode"]] },
+    });
+  }
+  if (headers[7] !== "Comment") {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: FEES_SHEET_ID,
+      range: `${SHEET_NAME}!H1`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [["Comment"]] },
     });
   }
 }
@@ -91,7 +102,7 @@ export async function appendDailyEntry(entry: DailyEntryInput): Promise<void> {
   const mode = entry.paymentMode ? normalizePaymentMode(entry.paymentMode) : undefined;
   await sheets.spreadsheets.values.append({
     spreadsheetId: FEES_SHEET_ID,
-    range: `${SHEET_NAME}!A:G`,
+    range: `${SHEET_NAME}!A:H`,
     valueInputOption: "USER_ENTERED",
     insertDataOption: "INSERT_ROWS",
     requestBody: {
@@ -104,6 +115,7 @@ export async function appendDailyEntry(entry: DailyEntryInput): Promise<void> {
           entry.amount,
           entry.feeMonth ?? "",
           mode ? paymentModeLabel(mode) : "",
+          entry.comment?.trim() ?? "",
         ],
       ],
     },
@@ -115,7 +127,7 @@ export async function getAllDailyEntries(): Promise<DailyEntry[]> {
   const sheets = getSheetsClient();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: FEES_SHEET_ID,
-    range: `${SHEET_NAME}!A:G`,
+    range: `${SHEET_NAME}!A:H`,
   });
   const rows = (res.data.values ?? []).slice(1);
   return rows
@@ -128,6 +140,7 @@ export async function getAllDailyEntries(): Promise<DailyEntry[]> {
       amount: Number(row[4]) || 0,
       feeMonth: row[5] ? Number(row[5]) : undefined,
       paymentMode: parsePaymentMode(row[6]),
+      comment: row[7]?.trim() || undefined,
     }))
     .filter((e) => e.date && e.studentName);
 }
@@ -139,7 +152,7 @@ export async function getDailyEntriesForStudent(srNo: string): Promise<DailyEntr
 
 export async function updateDailyEntry(
   rowId: string,
-  update: { amount?: number; paymentMode?: PaymentMode }
+  update: { amount?: number; paymentMode?: PaymentMode; comment?: string }
 ): Promise<void> {
   await ensureSheet();
   const sheets = getSheetsClient();
@@ -155,6 +168,12 @@ export async function updateDailyEntry(
     data.push({
       range: `${SHEET_NAME}!G${rowId}`,
       values: [[paymentModeLabel(normalizePaymentMode(update.paymentMode))]],
+    });
+  }
+  if (update.comment !== undefined) {
+    data.push({
+      range: `${SHEET_NAME}!H${rowId}`,
+      values: [[update.comment.trim()]],
     });
   }
 
