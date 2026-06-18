@@ -2,7 +2,7 @@
 export const DEFAULT_EXPENSE_CATEGORIES = [
   "Bus Expense",
   "Salary",
-  "School Maitenance",
+  "School Maintenance",
   "Books Vendor",
   "Uniform Vendor",
   "Stationary",
@@ -13,7 +13,9 @@ export const DEFAULT_EXPENSE_CATEGORIES = [
 ] as const;
 
 export function normalizeCategoryName(name: string): string {
-  return name.trim().replace(/\s+/g, " ");
+  const trimmed = name.trim().replace(/\s+/g, " ");
+  if (trimmed.toLowerCase() === "school maitenance") return "School Maintenance";
+  return trimmed;
 }
 
 export function isValidCategoryName(name: string): boolean {

@@ -86,8 +86,50 @@ async function ensureExpenseSheets(): Promise<void> {
   }
 
   await seedDefaultCategoriesIfEmpty();
+  await repairCategorySpelling();
   await refreshCategoryDropdown();
   sheetsEnsured = true;
+}
+
+/** Fix known typos in Expense Categories tab (e.g. Maitenance → Maintenance). */
+async function repairCategorySpelling(): Promise<void> {
+  const sheets = getSheetsClient();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: FEES_SHEET_ID,
+    range: `${CATEGORY_SHEET}!A2:A500`,
+  });
+  const data: { range: string; values: string[][] }[] = [];
+  for (const [i, row] of (res.data.values ?? []).entries()) {
+    const raw = String(row[0] ?? "");
+    const fixed = normalizeCategoryName(raw);
+    if (raw && fixed !== raw) {
+      data.push({ range: `${CATEGORY_SHEET}!A${i + 2}`, values: [[fixed]] });
+    }
+  }
+  if (data.length === 0) return;
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId: FEES_SHEET_ID,
+    requestBody: { valueInputOption: "USER_ENTERED", data },
+  });
+
+  const logRes = await sheets.spreadsheets.values.get({
+    spreadsheetId: FEES_SHEET_ID,
+    range: `${EXPENSE_SHEET}!B2:B5000`,
+  });
+  const logFixes: { range: string; values: string[][] }[] = [];
+  for (const [i, row] of (logRes.data.values ?? []).entries()) {
+    const raw = String(row[0] ?? "");
+    const fixed = normalizeCategoryName(raw);
+    if (raw && fixed !== raw) {
+      logFixes.push({ range: `${EXPENSE_SHEET}!B${i + 2}`, values: [[fixed]] });
+    }
+  }
+  if (logFixes.length > 0) {
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId: FEES_SHEET_ID,
+      requestBody: { valueInputOption: "USER_ENTERED", data: logFixes },
+    });
+  }
 }
 
 async function seedDefaultCategoriesIfEmpty(): Promise<void> {
@@ -241,7 +283,7 @@ export async function getAllExpenseEntries(): Promise<ExpenseEntry[]> {
     .map((row, i) => ({
       id: String(i + 2),
       date: row[0] ?? "",
-      category: row[1] ?? "",
+      category: normalizeCategoryName(row[1] ?? ""),
       amount: Number(row[2]) || 0,
       paymentMode: parsePaymentModeCell(row[3]),
       comment: row[4] ?? "",
