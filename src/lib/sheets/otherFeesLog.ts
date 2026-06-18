@@ -197,6 +197,26 @@ function parsePaymentModeCell(raw: string | undefined): PaymentMode {
   return normalizePaymentMode(raw);
 }
 
+function entryToRowValues(entry: OtherFeeEntryInput): (string | number)[] {
+  const mode = normalizePaymentMode(entry.paymentMode);
+  return [
+    entry.date,
+    entry.studentName,
+    entry.className,
+    entry.srNo,
+    normalizeFeeTypeName(entry.feeType),
+    entry.amount,
+    paymentModeLabel(mode),
+    entry.notes.trim(),
+  ];
+}
+
+/** Next data row (row 1 = header). Uses entry count, not sheet grid extent. */
+async function nextOtherFeeDataRow(): Promise<number> {
+  const entries = await getAllOtherFeeEntries();
+  return entries.length + 2;
+}
+
 export async function getAllOtherFeeEntries(): Promise<OtherFeeEntry[]> {
   await ensureOtherFeesSheets();
   const sheets = getSheetsClient();
@@ -220,6 +240,48 @@ export async function getAllOtherFeeEntries(): Promise<OtherFeeEntry[]> {
     .filter((e) => e.date && e.studentName && e.feeType && e.amount > 0);
 }
 
+/** Rewrite all entries contiguously from row 2 (fixes phantom row gaps from Sheets append). */
+export async function compactOtherFeesLog(): Promise<number> {
+  await ensureOtherFeesSheets();
+  const entries = await getAllOtherFeeEntries();
+  const sheets = getSheetsClient();
+  const meta = await sheets.spreadsheets.get({ spreadsheetId: FEES_SHEET_ID });
+  const gridRows =
+    meta.data.sheets?.find((s) => s.properties?.title === OTHER_FEES_SHEET)?.properties
+      ?.gridProperties?.rowCount ?? entries.length + 2;
+
+  if (gridRows > 1) {
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId: FEES_SHEET_ID,
+      range: `${OTHER_FEES_SHEET}!A2:H${gridRows}`,
+    });
+  }
+
+  if (entries.length === 0) return 0;
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: FEES_SHEET_ID,
+    range: `${OTHER_FEES_SHEET}!A2:H${entries.length + 1}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values: entries.map((e) =>
+        entryToRowValues({
+          date: e.date,
+          studentName: e.studentName,
+          className: e.className,
+          srNo: e.srNo,
+          feeType: e.feeType,
+          amount: e.amount,
+          paymentMode: e.paymentMode,
+          notes: e.notes,
+        })
+      ),
+    },
+  });
+
+  return entries.length;
+}
+
 export async function getOtherFeeEntriesForStudent(srNo: string): Promise<OtherFeeEntry[]> {
   const all = await getAllOtherFeeEntries();
   return all.filter((e) => e.srNo === srNo);
@@ -229,27 +291,13 @@ export async function appendOtherFeeEntry(entry: OtherFeeEntryInput): Promise<vo
   await ensureOtherFeesSheets();
   await addOtherFeeType(entry.feeType);
 
+  const nextRow = await nextOtherFeeDataRow();
   const sheets = getSheetsClient();
-  const mode = normalizePaymentMode(entry.paymentMode);
-  await sheets.spreadsheets.values.append({
+  await sheets.spreadsheets.values.update({
     spreadsheetId: FEES_SHEET_ID,
-    range: `${OTHER_FEES_SHEET}!A:H`,
+    range: `${OTHER_FEES_SHEET}!A${nextRow}:H${nextRow}`,
     valueInputOption: "USER_ENTERED",
-    insertDataOption: "INSERT_ROWS",
-    requestBody: {
-      values: [
-        [
-          entry.date,
-          entry.studentName,
-          entry.className,
-          entry.srNo,
-          normalizeFeeTypeName(entry.feeType),
-          entry.amount,
-          paymentModeLabel(mode),
-          entry.notes.trim(),
-        ],
-      ],
-    },
+    requestBody: { values: [entryToRowValues(entry)] },
   });
 }
 
