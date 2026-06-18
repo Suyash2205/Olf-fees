@@ -4,6 +4,12 @@ import {
 } from "@/lib/expense-categories";
 import { normalizePaymentMode, paymentModeLabel, type PaymentMode } from "@/lib/payment-mode";
 import { getSheetsClient, FEES_SHEET_ID } from "./client";
+import {
+  amountsMatch,
+  normalizeSheetDate,
+  parseSheetAmount,
+  verifySheetWrite,
+} from "./verify-write";
 
 export const EXPENSE_SHEET = "Daily expense";
 export const CATEGORY_SHEET = "Expense Categories";
@@ -186,6 +192,43 @@ function parsePaymentModeCell(raw: string | undefined): PaymentMode {
   return normalizePaymentMode(raw);
 }
 
+function entryToRowValues(entry: ExpenseEntryInput): (string | number)[] {
+  const mode = normalizePaymentMode(entry.paymentMode);
+  return [
+    entry.date,
+    normalizeCategoryName(entry.category),
+    entry.amount,
+    paymentModeLabel(mode),
+    entry.comment.trim(),
+  ];
+}
+
+async function readExpenseRow(row: number): Promise<string[] | undefined> {
+  const sheets = getSheetsClient();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: FEES_SHEET_ID,
+    range: `${EXPENSE_SHEET}!A${row}:E${row}`,
+  });
+  return res.data.values?.[0];
+}
+
+function expenseRowMatches(entry: ExpenseEntryInput, row: string[]): boolean {
+  const mode = normalizePaymentMode(entry.paymentMode);
+  const rowMode = row[3]?.trim() ? normalizePaymentMode(row[3]) : "cash";
+  return (
+    normalizeSheetDate(row[0]) === entry.date &&
+    normalizeCategoryName(row[1] ?? "") === normalizeCategoryName(entry.category) &&
+    amountsMatch(parseSheetAmount(row[2]), entry.amount) &&
+    rowMode === mode &&
+    (row[4]?.trim() ?? "") === entry.comment.trim()
+  );
+}
+
+async function nextExpenseDataRow(): Promise<number> {
+  const entries = await getAllExpenseEntries();
+  return entries.length + 2;
+}
+
 export async function getAllExpenseEntries(): Promise<ExpenseEntry[]> {
   await ensureExpenseSheets();
   const sheets = getSheetsClient();
@@ -210,25 +253,19 @@ export async function appendExpenseEntry(entry: ExpenseEntryInput): Promise<void
   await ensureExpenseSheets();
   await addExpenseCategory(entry.category);
 
+  const nextRow = await nextExpenseDataRow();
   const sheets = getSheetsClient();
-  const mode = normalizePaymentMode(entry.paymentMode);
-  await sheets.spreadsheets.values.append({
+  await sheets.spreadsheets.values.update({
     spreadsheetId: FEES_SHEET_ID,
-    range: `${EXPENSE_SHEET}!A:E`,
+    range: `${EXPENSE_SHEET}!A${nextRow}:E${nextRow}`,
     valueInputOption: "USER_ENTERED",
-    insertDataOption: "INSERT_ROWS",
-    requestBody: {
-      values: [
-        [
-          entry.date,
-          normalizeCategoryName(entry.category),
-          entry.amount,
-          paymentModeLabel(mode),
-          entry.comment.trim(),
-        ],
-      ],
-    },
+    requestBody: { values: [entryToRowValues(entry)] },
   });
+
+  await verifySheetWrite(async () => {
+    const row = await readExpenseRow(nextRow);
+    return row != null && expenseRowMatches(entry, row);
+  }, "Expense entry");
 }
 
 export async function updateExpenseEntry(
@@ -267,10 +304,43 @@ export async function updateExpenseEntry(
     spreadsheetId: FEES_SHEET_ID,
     requestBody: { valueInputOption: "USER_ENTERED", data },
   });
+
+  await verifySheetWrite(async () => {
+    const row = await readExpenseRow(Number(rowId));
+    if (!row?.[0]) return false;
+    if (update.date !== undefined && normalizeSheetDate(row[0]) !== update.date) return false;
+    if (
+      update.category !== undefined &&
+      normalizeCategoryName(row[1] ?? "") !== normalizeCategoryName(update.category)
+    ) {
+      return false;
+    }
+    if (update.amount !== undefined && !amountsMatch(parseSheetAmount(row[2]), update.amount)) {
+      return false;
+    }
+    if (update.paymentMode !== undefined) {
+      const expected = normalizePaymentMode(update.paymentMode);
+      const actual = row[3]?.trim() ? normalizePaymentMode(row[3]) : "cash";
+      if (actual !== expected) return false;
+    }
+    if (update.comment !== undefined && (row[4]?.trim() ?? "") !== update.comment.trim()) {
+      return false;
+    }
+    return true;
+  }, "Expense entry update");
 }
 
 export async function deleteExpenseEntry(rowId: string): Promise<void> {
   await ensureExpenseSheets();
+  const rowBefore = await readExpenseRow(Number(rowId));
+  const snapshot = rowBefore?.[0]
+    ? {
+        date: normalizeSheetDate(rowBefore[0]),
+        category: rowBefore[1] ?? "",
+        amount: parseSheetAmount(rowBefore[2]),
+      }
+    : null;
+
   const sheets = getSheetsClient();
   const sheetId = await getSheetId(EXPENSE_SHEET);
   const rowIndex = Number(rowId) - 1;
@@ -291,4 +361,16 @@ export async function deleteExpenseEntry(rowId: string): Promise<void> {
       ],
     },
   });
+
+  if (snapshot) {
+    await verifySheetWrite(async () => {
+      const entries = await getAllExpenseEntries();
+      return !entries.some(
+        (e) =>
+          e.date === snapshot.date &&
+          e.category === snapshot.category &&
+          amountsMatch(e.amount, snapshot.amount)
+      );
+    }, "Expense entry delete");
+  }
 }

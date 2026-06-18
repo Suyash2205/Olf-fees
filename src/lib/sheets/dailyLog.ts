@@ -1,5 +1,11 @@
 import { normalizePaymentMode, paymentModeLabel, type PaymentMode } from "@/lib/payment-mode";
 import { getSheetsClient, FEES_SHEET_ID } from "./client";
+import {
+  amountsMatch,
+  normalizeSheetDate,
+  parseSheetAmount,
+  verifySheetWrite,
+} from "./verify-write";
 
 const LEGACY_SHEET_NAME = "Daily Log";
 export const SHEET_NAME = "Daily Fees Log";
@@ -101,30 +107,66 @@ function parsePaymentMode(raw: string | undefined): PaymentMode | undefined {
   return normalizePaymentMode(raw);
 }
 
+function entryToRowValues(entry: DailyEntryInput): (string | number)[] {
+  const mode = entry.paymentMode ? normalizePaymentMode(entry.paymentMode) : undefined;
+  return [
+    entry.date,
+    entry.studentName,
+    entry.className,
+    entry.srNo,
+    entry.amount,
+    entry.feeMonth ?? "",
+    mode ? paymentModeLabel(mode) : "",
+    entry.comment?.trim() ?? "",
+  ];
+}
+
+async function nextDailyDataRow(): Promise<number> {
+  const entries = await getAllDailyEntries();
+  return entries.length + 2;
+}
+
+async function readDailyRow(row: number): Promise<string[] | undefined> {
+  const sheets = getSheetsClient();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: FEES_SHEET_ID,
+    range: `${SHEET_NAME}!A${row}:H${row}`,
+  });
+  return res.data.values?.[0];
+}
+
+function dailyRowMatches(entry: DailyEntryInput, row: string[]): boolean {
+  const mode = entry.paymentMode ? normalizePaymentMode(entry.paymentMode) : undefined;
+  const rowMode = row[6]?.trim() ? normalizePaymentMode(row[6]) : undefined;
+  const feeMonth = row[5] ? Number(row[5]) : undefined;
+  return (
+    normalizeSheetDate(row[0]) === entry.date &&
+    row[1] === entry.studentName &&
+    row[3] === entry.srNo &&
+    amountsMatch(parseSheetAmount(row[4]), entry.amount) &&
+    (entry.feeMonth === undefined || feeMonth === entry.feeMonth) &&
+    (mode === undefined || rowMode === mode) &&
+    (entry.comment === undefined || (row[7]?.trim() ?? "") === entry.comment.trim())
+  );
+}
+
 export async function appendDailyEntry(entry: DailyEntryInput): Promise<void> {
   await ensureSheet();
+  const nextRow = await nextDailyDataRow();
   const sheets = getSheetsClient();
-  const mode = entry.paymentMode ? normalizePaymentMode(entry.paymentMode) : undefined;
-  await sheets.spreadsheets.values.append({
+  const values = entryToRowValues(entry);
+
+  await sheets.spreadsheets.values.update({
     spreadsheetId: FEES_SHEET_ID,
-    range: `${SHEET_NAME}!A:H`,
+    range: `${SHEET_NAME}!A${nextRow}:H${nextRow}`,
     valueInputOption: "USER_ENTERED",
-    insertDataOption: "INSERT_ROWS",
-    requestBody: {
-      values: [
-        [
-          entry.date,
-          entry.studentName,
-          entry.className,
-          entry.srNo,
-          entry.amount,
-          entry.feeMonth ?? "",
-          mode ? paymentModeLabel(mode) : "",
-          entry.comment?.trim() ?? "",
-        ],
-      ],
-    },
+    requestBody: { values: [values] },
   });
+
+  await verifySheetWrite(async () => {
+    const row = await readDailyRow(nextRow);
+    return row != null && dailyRowMatches(entry, row);
+  }, "School fee payment");
 }
 
 export async function getAllDailyEntries(): Promise<DailyEntry[]> {
@@ -191,6 +233,23 @@ export async function updateDailyEntry(
       data,
     },
   });
+
+  await verifySheetWrite(async () => {
+    const row = await readDailyRow(Number(rowId));
+    if (!row?.[0]) return false;
+    if (update.amount !== undefined && !amountsMatch(parseSheetAmount(row[4]), update.amount)) {
+      return false;
+    }
+    if (update.paymentMode !== undefined) {
+      const expected = normalizePaymentMode(update.paymentMode);
+      const actual = row[6]?.trim() ? normalizePaymentMode(row[6]) : undefined;
+      if (actual !== expected) return false;
+    }
+    if (update.comment !== undefined && (row[7]?.trim() ?? "") !== update.comment.trim()) {
+      return false;
+    }
+    return true;
+  }, "School fee payment update");
 }
 
 export async function deleteDailyEntry(
@@ -239,6 +298,26 @@ export async function deleteDailyEntry(
     throw new Error("Invalid payment row");
   }
 
+  const snapshot =
+    expected != null
+      ? await getAllDailyEntries().then((entries) =>
+          entries.find(
+            (e) =>
+              e.srNo === expected.srNo &&
+              e.date === expected.date &&
+              amountsMatch(e.amount, expected.amount)
+          )
+        )
+      : await readDailyRow(Number(rowId)).then((row) =>
+          row?.[0]
+            ? ({
+                srNo: row[3] ?? "",
+                date: normalizeSheetDate(row[0]),
+                amount: parseSheetAmount(row[4]),
+              } as const)
+            : undefined
+        );
+
   await sheets.spreadsheets.batchUpdate({
     spreadsheetId: FEES_SHEET_ID,
     requestBody: {
@@ -251,4 +330,16 @@ export async function deleteDailyEntry(
       ],
     },
   });
+
+  if (snapshot) {
+    await verifySheetWrite(async () => {
+      const entries = await getAllDailyEntries();
+      return !entries.some(
+        (e) =>
+          e.srNo === snapshot.srNo &&
+          e.date === snapshot.date &&
+          amountsMatch(e.amount, snapshot.amount)
+      );
+    }, "School fee payment delete");
+  }
 }

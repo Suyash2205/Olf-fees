@@ -4,6 +4,12 @@ import {
 } from "@/lib/other-fee-types";
 import { normalizePaymentMode, paymentModeLabel, type PaymentMode } from "@/lib/payment-mode";
 import { getSheetsClient, FEES_SHEET_ID } from "./client";
+import {
+  amountsMatch,
+  normalizeSheetDate,
+  parseSheetAmount,
+  verifySheetWrite,
+} from "./verify-write";
 
 export const OTHER_FEES_SHEET = "Other Fees Log";
 export const OTHER_FEE_TYPES_SHEET = "Other Fee Types";
@@ -211,6 +217,29 @@ function entryToRowValues(entry: OtherFeeEntryInput): (string | number)[] {
   ];
 }
 
+async function readOtherFeeRow(row: number): Promise<string[] | undefined> {
+  const sheets = getSheetsClient();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: FEES_SHEET_ID,
+    range: `${OTHER_FEES_SHEET}!A${row}:H${row}`,
+  });
+  return res.data.values?.[0];
+}
+
+function otherFeeRowMatches(entry: OtherFeeEntryInput, row: string[]): boolean {
+  const mode = normalizePaymentMode(entry.paymentMode);
+  const rowMode = row[6]?.trim() ? normalizePaymentMode(row[6]) : "cash";
+  return (
+    normalizeSheetDate(row[0]) === entry.date &&
+    row[1] === entry.studentName &&
+    row[3] === entry.srNo &&
+    normalizeFeeTypeName(row[4] ?? "") === normalizeFeeTypeName(entry.feeType) &&
+    amountsMatch(parseSheetAmount(row[5]), entry.amount) &&
+    rowMode === mode &&
+    (row[7]?.trim() ?? "") === entry.notes.trim()
+  );
+}
+
 /** Next data row (row 1 = header). Uses entry count, not sheet grid extent. */
 async function nextOtherFeeDataRow(): Promise<number> {
   const entries = await getAllOtherFeeEntries();
@@ -299,6 +328,11 @@ export async function appendOtherFeeEntry(entry: OtherFeeEntryInput): Promise<vo
     valueInputOption: "USER_ENTERED",
     requestBody: { values: [entryToRowValues(entry)] },
   });
+
+  await verifySheetWrite(async () => {
+    const row = await readOtherFeeRow(nextRow);
+    return row != null && otherFeeRowMatches(entry, row);
+  }, "Other fee entry");
 }
 
 export async function updateOtherFeeEntry(
@@ -334,6 +368,28 @@ export async function updateOtherFeeEntry(
     spreadsheetId: FEES_SHEET_ID,
     requestBody: { valueInputOption: "USER_ENTERED", data },
   });
+
+  await verifySheetWrite(async () => {
+    const row = await readOtherFeeRow(Number(rowId));
+    if (!row?.[0]) return false;
+    if (update.feeType !== undefined) {
+      if (normalizeFeeTypeName(row[4] ?? "") !== normalizeFeeTypeName(update.feeType)) {
+        return false;
+      }
+    }
+    if (update.amount !== undefined && !amountsMatch(parseSheetAmount(row[5]), update.amount)) {
+      return false;
+    }
+    if (update.paymentMode !== undefined) {
+      const expected = normalizePaymentMode(update.paymentMode);
+      const actual = row[6]?.trim() ? normalizePaymentMode(row[6]) : "cash";
+      if (actual !== expected) return false;
+    }
+    if (update.notes !== undefined && (row[7]?.trim() ?? "") !== update.notes.trim()) {
+      return false;
+    }
+    return true;
+  }, "Other fee entry update");
 }
 
 export async function deleteOtherFeeEntry(
@@ -372,6 +428,14 @@ export async function deleteOtherFeeEntry(
     throw new Error("Invalid row");
   }
 
+  const rowBefore = expected ? null : await readOtherFeeRow(Number(rowId));
+  const snapshot = expected ?? {
+    srNo: rowBefore?.[3] ?? "",
+    date: normalizeSheetDate(rowBefore?.[0]),
+    amount: parseSheetAmount(rowBefore?.[5]),
+    feeType: rowBefore?.[4] ?? "",
+  };
+
   const sheets = getSheetsClient();
   await sheets.spreadsheets.batchUpdate({
     spreadsheetId: FEES_SHEET_ID,
@@ -385,4 +449,17 @@ export async function deleteOtherFeeEntry(
       ],
     },
   });
+
+  if (snapshot.srNo && snapshot.date && snapshot.feeType) {
+    await verifySheetWrite(async () => {
+      const entries = await getAllOtherFeeEntries();
+      return !entries.some(
+        (e) =>
+          e.srNo === snapshot.srNo &&
+          e.date === snapshot.date &&
+          e.feeType === snapshot.feeType &&
+          amountsMatch(e.amount, snapshot.amount)
+      );
+    }, "Other fee entry delete");
+  }
 }
