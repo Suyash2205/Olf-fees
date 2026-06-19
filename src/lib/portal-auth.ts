@@ -1,5 +1,6 @@
 import { getToken } from "next-auth/jwt";
 import { NextRequest, NextResponse } from "next/server";
+import { canAccessFees } from "@/lib/access-control";
 
 export type PortalActor = {
   email: string;
@@ -15,12 +16,19 @@ export async function getPortalActor(req: NextRequest): Promise<PortalActor | nu
   };
 }
 
+/** Fees & expense portal APIs — requires admin allowlist. */
 export async function requirePortalActor(
   req: NextRequest
 ): Promise<PortalActor | NextResponse> {
   const actor = await getPortalActor(req);
   if (!actor) {
     return NextResponse.json({ error: "Sign in required." }, { status: 401 });
+  }
+  if (!canAccessFees(actor.email)) {
+    return NextResponse.json(
+      { error: "You do not have access to the fees portal." },
+      { status: 403 }
+    );
   }
   return actor;
 }
