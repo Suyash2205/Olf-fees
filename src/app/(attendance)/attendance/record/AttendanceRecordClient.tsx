@@ -426,7 +426,7 @@ export default function AttendanceRecordClient() {
         </div>
       ) : (
         <ul className="space-y-2">
-          {filteredStudents.map((student) => {
+          {filteredStudents.map((student, index) => {
             const status = statusMap[student.srNo] ?? "absent";
             const isPresent = status === "present";
             return (
@@ -438,9 +438,14 @@ export default function AttendanceRecordClient() {
                       : "border-red-200 bg-red-50/70"
                   }`}
                 >
-                  <span className="font-medium text-slate-800 min-w-0 flex-1 leading-snug">
-                    {student.studentName}
-                  </span>
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
+                    <span className="w-7 shrink-0 text-center text-sm font-semibold tabular-nums text-slate-400">
+                      {index + 1}
+                    </span>
+                    <span className="min-w-0 flex-1 font-medium leading-snug text-slate-800">
+                      {student.studentName}
+                    </span>
+                  </div>
                   <div className="flex items-center gap-2.5 shrink-0">
                     <span
                       className={`text-xs font-semibold w-14 text-right ${
