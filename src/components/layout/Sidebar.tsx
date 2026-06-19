@@ -21,6 +21,7 @@ import {
   Database,
   Shield,
   X,
+  CalendarCheck,
 } from "lucide-react";
 import SchoolLogo from "@/components/SchoolLogo";
 
@@ -44,6 +45,10 @@ const SCHOOL_FEE_ITEMS: NavItem[] = [
 const EXPENSE_ITEMS: NavItem[] = [
   { href: "/daily-expense", label: "Daily Expense", icon: Receipt },
   { href: "/expense-dashboard", label: "Expense Dashboard", icon: BarChart3 },
+];
+
+const ATTENDANCE_ITEMS: NavItem[] = [
+  { href: "/attendance?from=fees", label: "Attendance", icon: CalendarCheck },
 ];
 
 const ADMIN_ITEMS: NavItem[] = [
@@ -73,7 +78,11 @@ function NavSection({
       </p>
       <div className="space-y-0.5">
         {items.map(({ href, label, icon: Icon }) => {
-          const active = pathname === href || pathname.startsWith(href + "/");
+          const pathOnly = href.split("?")[0];
+          const active =
+            pathname === pathOnly ||
+            pathname.startsWith(pathOnly + "/") ||
+            (pathOnly === "/attendance" && pathname.startsWith("/attendance"));
           return (
             <Link
               key={href}
@@ -130,6 +139,7 @@ export default function Sidebar({ open = false, onClose }: SidebarProps) {
         <NavSection title="Overview" items={GENERAL_ITEMS} pathname={pathname} onClose={onClose} />
         <NavSection title="School fees" items={SCHOOL_FEE_ITEMS} pathname={pathname} onClose={onClose} />
         <NavSection title="Expense" items={EXPENSE_ITEMS} pathname={pathname} onClose={onClose} />
+        <NavSection title="Attendance" items={ATTENDANCE_ITEMS} pathname={pathname} onClose={onClose} />
         <NavSection title="Admin" items={ADMIN_ITEMS} pathname={pathname} onClose={onClose} />
       </nav>
 
