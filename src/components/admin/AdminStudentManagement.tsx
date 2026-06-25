@@ -58,7 +58,7 @@ export default function AdminStudentManagement() {
       <div>
         <h2 className="text-sm font-semibold text-rose-900">Student status (sensitive)</h2>
         <p className="text-xs text-rose-800/80 mt-0.5">
-          Mark students as <strong>Left</strong> or <strong>Failed</strong> (hidden from active lists), or{" "}
+          Mark students as <strong>Active</strong>, <strong>Left</strong>, or <strong>Failed</strong> (Left/Failed are hidden from active lists), or{" "}
           <strong>Remove</strong> to delete all spreadsheet rows permanently.
         </p>
       </div>

@@ -7,9 +7,20 @@ export function buildInactiveKeysFromAdmissions(
   admissions: AdmissionRecord[]
 ): Set<string> {
   const keys = new Set<string>();
+  const activeNameKeys = new Set<string>();
+
+  for (const a of admissions) {
+    if (!isActiveStatus(a.status)) continue;
+    activeNameKeys.add(normalizeStudentName(a.fullName));
+  }
+
   for (const a of admissions) {
     if (isActiveStatus(a.status)) continue;
-    keys.add(normalizeStudentName(a.fullName));
+    const nameKey = normalizeStudentName(a.fullName);
+    // Do not hide by name if an active admission exists with the same name.
+    if (!activeNameKeys.has(nameKey)) {
+      keys.add(nameKey);
+    }
     if (a.grNo) keys.add(a.grNo.toLowerCase());
   }
   return keys;

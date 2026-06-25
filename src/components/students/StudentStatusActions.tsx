@@ -1,12 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, UserMinus, UserX } from "lucide-react";
+import { Loader2, UserCheck, UserMinus, UserX } from "lucide-react";
 import { portalFetch } from "@/lib/portal-fetch";
 import { dispatchPortalRefresh } from "@/lib/portal-refresh";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 
-type PendingAction = "Left" | "Failed" | "remove";
+type PendingAction = "Active" | "Left" | "Failed" | "remove";
 
 type Props = {
   studentName: string;
@@ -60,6 +60,11 @@ export default function StudentStatusActions({
   }
 
   const descriptions: Record<PendingAction, { title: string; body: string; label: string }> = {
+    Active: {
+      title: "Mark as active",
+      body: `Mark ${studentName} as active again? They will be shown in student and fees lists.`,
+      label: "Mark as active",
+    },
     Left: {
       title: "Mark as left",
       body: `Mark ${studentName} as left school? They will be hidden from active fee and student lists.`,
@@ -105,6 +110,17 @@ export default function StudentStatusActions({
         onConfirm={() => pending && executeAction(pending)}
       />
       <div className={`flex ${compact ? "flex-col gap-1" : "flex-wrap gap-1"}`}>
+        <button
+          type="button"
+          className={`${btn} border-emerald-200 text-emerald-700 hover:bg-emerald-50`}
+          onClick={() => {
+            setError(null);
+            setPending("Active");
+          }}
+        >
+          <UserCheck className="w-3.5 h-3.5" />
+          Active
+        </button>
         <button
           type="button"
           className={`${btn} border-amber-200 text-amber-800 hover:bg-amber-50`}
