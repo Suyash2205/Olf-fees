@@ -1,4 +1,5 @@
 import { normalizeStudentName } from "@/lib/admission-utils";
+import { parseGrNoFromNotes } from "@/lib/admission-form";
 import { isInactiveAdmissionStatus } from "@/lib/student-status";
 import { readAllAdmissionsFromSheet } from "./admissions";
 import { addFeeRecord, readAllFeesFromSheetRaw, type FeeRecord } from "./fees";
@@ -12,9 +13,13 @@ function feeHasStudent(
   grNo?: string
 ): boolean {
   const norm = normalizeStudentName(fullName);
+  const wantedGr = grNo?.trim().toLowerCase();
   return fees.some((f) => {
+    if (wantedGr) {
+      const feeGr = parseGrNoFromNotes(f.notes)?.toLowerCase();
+      if (feeGr === wantedGr) return true;
+    }
     if (normalizeStudentName(f.studentName) === norm) return true;
-    if (grNo && f.notes.includes(grNo)) return true;
     return false;
   });
 }
@@ -26,29 +31,34 @@ export async function registerStudentFromAdmission(input: {
   discountAmount: number;
   grNo: string;
 }): Promise<{ srNo: string; created: boolean }> {
-  const fees = await readAllFeesFromSheetRaw();
-  if (feeHasStudent(fees, input.fullName, input.grNo)) {
-    const existing = fees.find(
-      (f) => normalizeStudentName(f.studentName) === normalizeStudentName(input.fullName)
-    );
-    return { srNo: existing?.srNo ?? "", created: false };
-  }
+  return withSheetWriteLock(async () => {
+    // Re-read inside the write lock so check+append is atomic.
+    const fees = await readAllFeesFromSheetRaw();
+    if (feeHasStudent(fees, input.fullName, input.grNo)) {
+      const existing = fees.find((f) => {
+        const feeGr = parseGrNoFromNotes(f.notes)?.toLowerCase();
+        if (input.grNo && feeGr === input.grNo.toLowerCase()) return true;
+        return normalizeStudentName(f.studentName) === normalizeStudentName(input.fullName);
+      });
+      return { srNo: existing?.srNo ?? "", created: false };
+    }
 
-  const maxSr = fees.reduce((max, f) => Math.max(max, Number(f.srNo) || 0), 0);
-  const srNo = String(maxSr + 1);
+    const maxSr = fees.reduce((max, f) => Math.max(max, Number(f.srNo) || 0), 0);
+    const srNo = String(maxSr + 1);
 
-  await Promise.all([
-    addFeeRecord({
-      srNo,
-      studentName: input.fullName,
-      className: input.standard,
-      totalFee: input.annualFee,
-      discountAmount: input.discountAmount,
-      grNo: input.grNo,
-    }),
-    addStudent(input.fullName, input.standard),
-  ]);
-  return { srNo, created: true };
+    await Promise.all([
+      addFeeRecord({
+        srNo,
+        studentName: input.fullName,
+        className: input.standard,
+        totalFee: input.annualFee,
+        discountAmount: input.discountAmount,
+        grNo: input.grNo,
+      }),
+      addStudent(input.fullName, input.standard),
+    ]);
+    return { srNo, created: true };
+  });
 }
 
 /** Admissions tab rows missing from Fee details (e.g. added manually in Sheets). */
