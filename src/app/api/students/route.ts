@@ -9,22 +9,33 @@ import { parseGrNoFromNotes } from "@/lib/admission-form";
 import { normalizeStudentName } from "@/lib/admission-utils";
 import { registerStudentFromAdmission } from "@/lib/sheets/admission-sync";
 import { getAllAdmissions } from "@/lib/sheets/admissions";
-import { getAllFees } from "@/lib/sheets/fees";
+import { getAllFees, readAllFeesFromSheetRaw } from "@/lib/sheets/fees";
 import { invalidatePortalCache } from "@/lib/sheets/invalidate-portal-cache";
 import { normalizeStatusLabel, statusFromFeeNotes } from "@/lib/student-status";
 
 // Derive student list from fee records — sync runs on GET /api/fees only (avoids parallel write races).
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    const [fees, admissions] = await Promise.all([getAllFees(), getAllAdmissions()]);
+    const includeInactive = req.nextUrl.searchParams.get("includeInactive") === "1";
+    const [fees, admissions] = await Promise.all([
+      includeInactive ? readAllFeesFromSheetRaw() : getAllFees(),
+      getAllAdmissions(),
+    ]);
     const admissionByGr = new Map(admissions.map((a) => [a.grNo.toLowerCase(), a]));
-    const grByName = new Map(
-      admissions.map((a) => [normalizeStudentName(a.fullName), a.grNo])
-    );
+    const admissionsByName = new Map<string, string[]>();
+    for (const admission of admissions) {
+      const key = normalizeStudentName(admission.fullName);
+      const existing = admissionsByName.get(key) ?? [];
+      existing.push(admission.grNo);
+      admissionsByName.set(key, existing);
+    }
 
     const students = fees.map((f) => {
       const grFromNotes = parseGrNoFromNotes(f.notes);
-      const grNo = grFromNotes ?? grByName.get(normalizeStudentName(f.studentName)) ?? null;
+      const nameKey = normalizeStudentName(f.studentName);
+      const grCandidates = admissionsByName.get(nameKey) ?? [];
+      const uniqueGrFromName = grCandidates.length === 1 ? grCandidates[0] : null;
+      const grNo = grFromNotes ?? uniqueGrFromName;
       const statusFromAdmission = grNo
         ? admissionByGr.get(grNo.toLowerCase())?.status
         : null;

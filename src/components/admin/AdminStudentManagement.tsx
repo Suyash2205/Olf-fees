@@ -35,7 +35,7 @@ export default function AdminStudentManagement() {
     setLoading(true);
     setError(null);
     try {
-      const res = await portalFetch("/api/students");
+      const res = await portalFetch("/api/students?includeInactive=1");
       if (!res.ok) throw new Error(`Error ${res.status}`);
       setStudents(await res.json());
     } catch (e) {
