@@ -20,6 +20,78 @@ function formatWhen(iso: string): string {
   }
 }
 
+type ParsedAuditDetails = {
+  source?: string;
+  note?: string;
+  sheetEditAttribution?: string;
+  recentSheetEditors?: { email: string; displayName: string; modifiedTime: string }[];
+  entries?: { amount: number; feeMonth?: number; feeMonthLabel?: string | null; comment?: string }[];
+};
+
+function parseAuditDetails(raw: string): ParsedAuditDetails | null {
+  try {
+    return JSON.parse(raw) as ParsedAuditDetails;
+  } catch {
+    return null;
+  }
+}
+
+function AuditDetailsBlock({ row }: { row: AuditLogEntry }) {
+  if (!row.details) return null;
+  const parsed = parseAuditDetails(row.details);
+  const isManualSheetSync =
+    row.action === "sync" &&
+    row.resource === "payments" &&
+    parsed?.source === "manual_sheet_entry";
+
+  if (isManualSheetSync && parsed) {
+    return (
+      <div className="mt-2 space-y-2 text-xs text-slate-600 max-w-lg">
+        <p className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-amber-900">
+          <strong>Manual sheet entry.</strong>{" "}
+          {parsed.note ?? "This payment existed on Fee details before the portal logged it."}
+        </p>
+        {parsed.entries?.map((e, i) => (
+          <p key={i}>
+            ₹{e.amount.toLocaleString("en-IN")}
+            {e.feeMonthLabel ? ` · ${e.feeMonthLabel} column` : ""}
+            {e.comment ? ` — ${e.comment}` : ""}
+          </p>
+        ))}
+        {parsed.sheetEditAttribution && (
+          <p className="text-slate-500">{parsed.sheetEditAttribution}</p>
+        )}
+        {parsed.recentSheetEditors && parsed.recentSheetEditors.length > 0 && (
+          <div>
+            <p className="font-medium text-slate-700">Recent spreadsheet editors</p>
+            <ul className="mt-1 space-y-1">
+              {parsed.recentSheetEditors.map((u) => (
+                <li key={u.email}>
+                  {u.displayName} ({u.email})
+                  {u.modifiedTime ? ` · ${formatWhen(u.modifiedTime)}` : ""}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        <details>
+          <summary className="cursor-pointer text-slate-400 hover:text-slate-600">Raw JSON</summary>
+          <pre className="mt-1 p-2 bg-slate-50 rounded text-[10px] overflow-x-auto">{row.details}</pre>
+        </details>
+      </div>
+    );
+  }
+
+  return (
+    <details className="mt-1 text-xs text-slate-500">
+      <summary className="cursor-pointer hover:text-slate-700">Details</summary>
+      <pre className="mt-1 p-2 bg-slate-50 rounded text-[10px] overflow-x-auto max-w-lg">
+        {row.details}
+      </pre>
+    </details>
+  );
+}
+
 export default function AdminAuditLog() {
   const [rows, setRows] = useState<AuditLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -143,14 +215,7 @@ export default function AdminAuditLog() {
                     {r.resourceId && (
                       <p className="text-xs text-slate-400 mt-0.5 font-mono">{r.resourceId}</p>
                     )}
-                    {r.details && (
-                      <details className="mt-1 text-xs text-slate-500">
-                        <summary className="cursor-pointer hover:text-slate-700">Details</summary>
-                        <pre className="mt-1 p-2 bg-slate-50 rounded text-[10px] overflow-x-auto max-w-lg">
-                          {r.details}
-                        </pre>
-                      </details>
-                    )}
+                    {r.details && <AuditDetailsBlock row={r} />}
                   </td>
                 </tr>
               ))}

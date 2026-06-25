@@ -7,6 +7,7 @@ import {
   getDailyEntriesForStudent,
   type DailyEntryInput,
 } from "./dailyLog";
+import { FEES_SHEET_ID } from "./client";
 import type { FeeRecord } from "./fees";
 import {
   FEE_MONTHS,
@@ -15,6 +16,28 @@ import {
   syncFeeRowAmounts,
   type FeePayment,
 } from "./fees";
+import { getRecentSpreadsheetEditors } from "./sheet-revision-hint";
+
+const MONTH_LABELS = [
+  "",
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+] as const;
+
+function manualSheetImportComment(month: number): string {
+  const label = MONTH_LABELS[month] ?? `month ${month}`;
+  return `Manual sheet entry (Fee details ${label} column). Not recorded via portal.`;
+}
 
 function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
@@ -75,6 +98,7 @@ export async function reconcileStudentPayments(
         srNo: fee.srNo,
         amount: diff,
         feeMonth: month,
+        comment: manualSheetImportComment(month),
       });
     }
   }
@@ -92,17 +116,31 @@ export async function reconcileStudentPayments(
   await syncFeeRowAmounts(fee.sheetRow, fee.totalFee, fee.discount);
 
   if (audit && toAppend.length > 0) {
+    let recentSheetEditors: Awaited<ReturnType<typeof getRecentSpreadsheetEditors>> = [];
+    try {
+      recentSheetEditors = await getRecentSpreadsheetEditors(FEES_SHEET_ID, 5);
+    } catch {
+      /* Drive revision hints are best-effort */
+    }
+
     await recordAudit(audit.req, {
       action: "sync",
       resource: "payments",
       resourceId: fee.srNo,
-      summary: `Imported ${toAppend.length} payment(s) from Fee details for ${fee.studentName}`,
+      summary: `Imported ${toAppend.length} manual sheet payment(s) for ${fee.studentName}`,
       details: {
+        source: "manual_sheet_entry",
         studentName: fee.studentName,
+        note: "Amount was already in Fee details monthly columns (manual/pre-portal sheet edit). Portal user below triggered import only.",
+        sheetEditAttribution:
+          "Google Sheets does not expose per-cell editor via API. Recent spreadsheet editors are listed; check Fee details > Version history for the exact cell edit.",
+        recentSheetEditors,
         entries: toAppend.map((e) => ({
           date: e.date,
           amount: e.amount,
           feeMonth: e.feeMonth,
+          feeMonthLabel: MONTH_LABELS[e.feeMonth ?? 0] ?? null,
+          comment: e.comment,
         })),
       },
       actor: audit.actor,

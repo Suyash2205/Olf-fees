@@ -11,8 +11,15 @@ function getAuth() {
   const credentials = JSON.parse(credentialsJson);
   return new google.auth.GoogleAuth({
     credentials,
-    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+    scopes: [
+      "https://www.googleapis.com/auth/spreadsheets",
+      "https://www.googleapis.com/auth/drive.metadata.readonly",
+    ],
   });
+}
+
+export function getGoogleAuth() {
+  return getAuth();
 }
 
 export function getSheetsClient(): sheets_v4.Sheets {
