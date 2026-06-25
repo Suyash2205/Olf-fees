@@ -13,8 +13,17 @@ type StudentRow = {
   fees: string;
   sheetRow: number;
   grNo: string | null;
+  status?: string;
   hasProfile: boolean;
 };
+
+function statusBadgeClass(status: string) {
+  const s = status.trim().toLowerCase();
+  if (s === "left") return "border-amber-200 bg-amber-50 text-amber-800";
+  if (s === "failed") return "border-orange-200 bg-orange-50 text-orange-800";
+  if (s === "removed") return "border-red-200 bg-red-50 text-red-700";
+  return "border-emerald-200 bg-emerald-50 text-emerald-700";
+}
 
 export default function AdminStudentManagement() {
   const [students, setStudents] = useState<StudentRow[]>([]);
@@ -95,6 +104,15 @@ export default function AdminStudentManagement() {
                   <p className="text-xs text-slate-500">
                     {s.className || "—"}
                     {s.grNo ? ` · ${s.grNo}` : ""}
+                  </p>
+                  <p className="mt-1">
+                    <span
+                      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${statusBadgeClass(
+                        s.status ?? "Active"
+                      )}`}
+                    >
+                      {s.status ?? "Active"}
+                    </span>
                   </p>
                 </div>
                 <StudentStatusActions

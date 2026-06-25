@@ -11,26 +11,34 @@ import { registerStudentFromAdmission } from "@/lib/sheets/admission-sync";
 import { getAllAdmissions } from "@/lib/sheets/admissions";
 import { getAllFees } from "@/lib/sheets/fees";
 import { invalidatePortalCache } from "@/lib/sheets/invalidate-portal-cache";
+import { normalizeStatusLabel, statusFromFeeNotes } from "@/lib/student-status";
 
 // Derive student list from fee records — sync runs on GET /api/fees only (avoids parallel write races).
 export async function GET() {
   try {
     const [fees, admissions] = await Promise.all([getAllFees(), getAllAdmissions()]);
+    const admissionByGr = new Map(admissions.map((a) => [a.grNo.toLowerCase(), a]));
     const grByName = new Map(
       admissions.map((a) => [normalizeStudentName(a.fullName), a.grNo])
     );
 
     const students = fees.map((f) => {
-      const grNo =
-        grByName.get(normalizeStudentName(f.studentName)) ??
-        parseGrNoFromNotes(f.notes) ??
-        null;
+      const grFromNotes = parseGrNoFromNotes(f.notes);
+      const grNo = grFromNotes ?? grByName.get(normalizeStudentName(f.studentName)) ?? null;
+      const statusFromAdmission = grNo
+        ? admissionByGr.get(grNo.toLowerCase())?.status
+        : null;
+      const status = statusFromAdmission
+        ? normalizeStatusLabel(statusFromAdmission)
+        : statusFromFeeNotes(f.notes) ?? "Active";
+
       return {
         name: f.studentName,
         className: f.className,
         fees: f.totalFee > 0 ? `₹${f.totalFee.toLocaleString("en-IN")}` : "",
         sheetRow: f.sheetRow,
         grNo,
+        status,
         hasProfile: Boolean(grNo),
       };
     });
