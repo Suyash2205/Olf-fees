@@ -94,7 +94,7 @@ export const EMPTY_ADMISSION_FORM: AdmissionFormValues = {
 };
 
 export function parseGrNoFromNotes(notes: string): string | null {
-  const m = notes.match(/GR:\s*(GR-\d{4}-\d+)/i);
+  const m = notes.match(/(?:GR:\s*)?(GR-\d{4}-\d+)/i);
   return m ? m[1] : null;
 }
 
