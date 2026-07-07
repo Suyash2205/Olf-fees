@@ -1,6 +1,7 @@
 import { canonicalClassLabel } from "@/lib/fees/structure";
 import { normalizeSheetDate } from "./verify-write";
 import { getSheetsClient, FEES_SHEET_ID } from "./client";
+import { withSheetRetry } from "./retry";
 
 export const ATTENDANCE_AUDIT_SHEET = "Attendance Audit Log";
 
@@ -36,7 +37,9 @@ function colLetter(idx: number): string {
 export async function ensureAttendanceAuditSheet(): Promise<void> {
   if (sheetEnsured) return;
   const sheets = getSheetsClient();
-  const meta = await sheets.spreadsheets.get({ spreadsheetId: FEES_SHEET_ID });
+  const meta = await withSheetRetry(() =>
+    sheets.spreadsheets.get({ spreadsheetId: FEES_SHEET_ID })
+  );
   const exists = meta.data.sheets?.some((s) => s.properties?.title === ATTENDANCE_AUDIT_SHEET);
 
   if (!exists) {
@@ -103,10 +106,12 @@ export async function getLatestAttendanceAuditByClass(
 ): Promise<Map<string, { teacherName: string; submittedAt: string }>> {
   await ensureAttendanceAuditSheet();
   const sheets = getSheetsClient();
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: FEES_SHEET_ID,
-    range: `${ATTENDANCE_AUDIT_SHEET}!A:H`,
-  });
+  const res = await withSheetRetry(() =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId: FEES_SHEET_ID,
+      range: `${ATTENDANCE_AUDIT_SHEET}!A:H`,
+    })
+  );
   const rows = (res.data.values ?? []).slice(1);
   const label = canonicalClassLabel(className);
   const byDate = new Map<string, { teacherName: string; submittedAt: string }>();

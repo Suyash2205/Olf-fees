@@ -14,10 +14,16 @@ import {
 } from "@/lib/attendance/types";
 import { getLatestAttendanceAuditByClass } from "@/lib/sheets/attendance-audit-log";
 import { getSheetsClient, FEES_SHEET_ID } from "./client";
+import { withSheetRetry } from "./retry";
+import { cachedSheetRead, invalidateSheetCache } from "./read-cache";
 import {
   normalizeSheetDate,
   verifySheetWrite,
 } from "./verify-write";
+
+/** Cache key prefixes for attendance reads (invalidated on save). */
+const CACHE_MARKED = "attendance:marked:";
+const CACHE_ALLROWS = "attendance:allrows";
 
 export const ATTENDANCE_SHEET_PREFIX = "Attendance · ";
 
@@ -80,16 +86,20 @@ async function ensureClassAttendanceSheet(className: string): Promise<string> {
   if (ensuredSheets.has(title)) return title;
 
   const sheets = getSheetsClient();
-  const meta = await sheets.spreadsheets.get({ spreadsheetId: FEES_SHEET_ID });
+  const meta = await withSheetRetry(() =>
+    sheets.spreadsheets.get({ spreadsheetId: FEES_SHEET_ID })
+  );
   const exists = meta.data.sheets?.some((s) => s.properties?.title === title);
 
   if (!exists) {
-    await sheets.spreadsheets.batchUpdate({
-      spreadsheetId: FEES_SHEET_ID,
-      requestBody: {
-        requests: [{ addSheet: { properties: { title } } }],
-      },
-    });
+    await withSheetRetry(() =>
+      sheets.spreadsheets.batchUpdate({
+        spreadsheetId: FEES_SHEET_ID,
+        requestBody: {
+          requests: [{ addSheet: { properties: { title } } }],
+        },
+      })
+    );
     await writeMatrixToSheet(title, { dates: [], students: [] });
   }
 
@@ -241,10 +251,12 @@ function colLetter(idx: number): string {
 async function readSheetValues(className: string): Promise<string[][]> {
   const title = await ensureClassAttendanceSheet(className);
   const sheets = getSheetsClient();
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: FEES_SHEET_ID,
-    range: `'${title}'!A:ZZ`,
-  });
+  const res = await withSheetRetry(() =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId: FEES_SHEET_ID,
+      range: `'${title}'!A:ZZ`,
+    })
+  );
   return res.data.values ?? [];
 }
 
@@ -254,18 +266,22 @@ async function writeMatrixToSheet(title: string, matrix: AttendanceMatrix): Prom
   const endCol = values[0]?.length ?? DATE_START_COL;
   const endRow = Math.max(values.length, HEADER_ROWS);
 
-  await sheets.spreadsheets.values.clear({
-    spreadsheetId: FEES_SHEET_ID,
-    range: `'${title}'!A:ZZ`,
-  });
+  await withSheetRetry(() =>
+    sheets.spreadsheets.values.clear({
+      spreadsheetId: FEES_SHEET_ID,
+      range: `'${title}'!A:ZZ`,
+    })
+  );
 
   if (endCol > 0) {
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: FEES_SHEET_ID,
-      range: `'${title}'!A1:${colLetter(endCol - 1)}${endRow}`,
-      valueInputOption: "USER_ENTERED",
-      requestBody: { values },
-    });
+    await withSheetRetry(() =>
+      sheets.spreadsheets.values.update({
+        spreadsheetId: FEES_SHEET_ID,
+        range: `'${title}'!A1:${colLetter(endCol - 1)}${endRow}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values },
+      })
+    );
   }
 }
 
@@ -392,6 +408,11 @@ export async function saveAttendanceForDate(
   const next = upsertMatrixForDate(current, normalizedDate, entries);
   await writeMatrixToSheet(title, next);
 
+  // A save changes what's marked — drop cached "marked" / "all rows" reads so
+  // the next screen load reflects it immediately.
+  invalidateSheetCache(CACHE_MARKED);
+  invalidateSheetCache(CACHE_ALLROWS);
+
   const present = entries.filter((e) => e.status === "present").length;
   const absent = entries.filter((e) => e.status === "absent").length;
 
@@ -413,43 +434,88 @@ export async function saveAttendanceForDate(
   return { present, absent, total: entries.length };
 }
 
-export async function readAllAttendanceRows(): Promise<AttendanceRow[]> {
+/** Titles of every "Attendance · <class>" tab in the workbook (one metadata read). */
+async function listAttendanceSheetTitles(): Promise<string[]> {
   const sheets = getSheetsClient();
-  const meta = await sheets.spreadsheets.get({ spreadsheetId: FEES_SHEET_ID });
-  const titles =
+  const meta = await withSheetRetry(() =>
+    sheets.spreadsheets.get({ spreadsheetId: FEES_SHEET_ID })
+  );
+  return (
     meta.data.sheets
       ?.map((s) => s.properties?.title ?? "")
-      .filter((t) => isAttendanceSheetTitle(t)) ?? [];
+      .filter((t) => isAttendanceSheetTitle(t)) ?? []
+  );
+}
 
-  const all: AttendanceRow[] = [];
-  for (const title of titles) {
+/**
+ * Parse raw sheet values into a matrix WITHOUT triggering a legacy-format
+ * migration write. Used by bulk read paths where writing back during a read
+ * burst would waste quota and risk write races.
+ */
+function valuesToMatrixReadOnly(values: string[][], className: string): AttendanceMatrix {
+  if (values.length === 0) return { dates: [], students: [] };
+  if (isOldLogFormat(values)) return rowsToMatrix(parseOldLogRows(values, className));
+  if (isMatrixFormat(values)) return parseMatrix(values);
+  return { dates: [], students: [] };
+}
+
+/** Read every attendance tab in ONE batchGet call (1 read request, not N). */
+async function batchReadClassMatrices(
+  titles: string[]
+): Promise<{ title: string; className: string; matrix: AttendanceMatrix }[]> {
+  if (titles.length === 0) return [];
+  const sheets = getSheetsClient();
+  const res = await withSheetRetry(() =>
+    sheets.spreadsheets.values.batchGet({
+      spreadsheetId: FEES_SHEET_ID,
+      ranges: titles.map((t) => `'${t}'!A:ZZ`),
+    })
+  );
+  const valueRanges = res.data.valueRanges ?? [];
+  const out: { title: string; className: string; matrix: AttendanceMatrix }[] = [];
+  for (let i = 0; i < titles.length; i++) {
+    const title = titles[i];
     const className = classNameFromSheetTitle(title);
     if (!className) continue;
-    const rows = await readClassAttendance(className);
-    all.push(...rows);
+    const values = (valueRanges[i]?.values ?? []) as string[][];
+    out.push({ title, className, matrix: valuesToMatrixReadOnly(values, className) });
   }
-  return all;
+  return out;
+}
+
+export async function readAllAttendanceRows(): Promise<AttendanceRow[]> {
+  return cachedSheetRead(
+    CACHE_ALLROWS,
+    async () => {
+      const titles = await listAttendanceSheetTitles();
+      const matrices = await batchReadClassMatrices(titles);
+      const all: AttendanceRow[] = [];
+      for (const { className, matrix } of matrices) {
+        all.push(...matrixToAttendanceRows(matrix, className));
+      }
+      return all;
+    },
+    20_000
+  );
 }
 
 export async function getClassesMarkedForDate(date: string): Promise<string[]> {
   const normalizedDate = normalizeSheetDate(date);
-  const sheets = getSheetsClient();
-  const meta = await sheets.spreadsheets.get({ spreadsheetId: FEES_SHEET_ID });
-  const titles =
-    meta.data.sheets
-      ?.map((s) => s.properties?.title ?? "")
-      .filter((t) => isAttendanceSheetTitle(t)) ?? [];
-
-  const marked: string[] = [];
-  for (const title of titles) {
-    const className = classNameFromSheetTitle(title);
-    if (!className) continue;
-    const rows = await readAttendanceForDate(className, normalizedDate);
-    if (rows.length > 0) {
-      marked.push(canonicalClassLabel(className));
-    }
-  }
-  return marked;
+  return cachedSheetRead(
+    `${CACHE_MARKED}${normalizedDate}`,
+    async () => {
+      const titles = await listAttendanceSheetTitles();
+      const matrices = await batchReadClassMatrices(titles);
+      const marked: string[] = [];
+      for (const { className, matrix } of matrices) {
+        if (matrix.students.some((s) => s.statuses.has(normalizedDate))) {
+          marked.push(canonicalClassLabel(className));
+        }
+      }
+      return marked;
+    },
+    20_000
+  );
 }
 
 export async function ensureAllAttendanceSheets(): Promise<void> {
