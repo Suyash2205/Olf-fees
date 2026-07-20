@@ -4,6 +4,7 @@ import { isPortalActor, requirePortalActor } from "@/lib/portal-auth";
 import { revalidateTag } from "next/cache";
 import type { DiscountType } from "@/lib/fees/structure";
 import { applyFeeDiscount, getAllFees } from "@/lib/sheets/fees";
+import { invalidateSheetCache } from "@/lib/sheets/read-cache";
 
 export async function POST(req: NextRequest) {
   const actor = await requirePortalActor(req);
@@ -25,6 +26,7 @@ export async function POST(req: NextRequest) {
     }
 
     const result = await applyFeeDiscount(record, discountType, discountValue);
+    invalidateSheetCache();
 
     const rt = revalidateTag as (tag: string, profile: string) => void;
     rt("fees", "default");

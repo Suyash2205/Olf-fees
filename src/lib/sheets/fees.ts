@@ -15,6 +15,15 @@ import {
 import { getSheetsClient, FEES_SHEET_ID } from "./client";
 import { feeRecordIsInactive, getInactiveStudentKeys } from "./fees-inactive";
 import { sortPortalStudentSheets } from "./sort-sheets";
+import { cachedSheetRead } from "./read-cache";
+import { withSheetRetry } from "./retry";
+
+// Shared across the fees portal, dashboard, students API, portal summary AND the
+// attendance roster/summaries. Cached briefly so concurrent users don't each
+// re-read the fee + admissions sheets and trip the per-service-account quota.
+// Every fee/admission write path calls invalidateSheetCache(), so this stays fresh.
+const CACHE_FEES_ACTIVE = "fees:active";
+const FEES_CACHE_TTL_MS = 15_000;
 
 export interface FeeRecord {
   srNo: string;        // col A — serial number, used as unique ID
@@ -123,10 +132,12 @@ export async function applyFeeDiscount(
 
 export async function readAllFeesFromSheetRaw(): Promise<FeeRecord[]> {
   const sheets = getSheetsClient();
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: FEES_SHEET_ID,
-    range: `${SHEET_NAME}!A:Z`,
-  });
+  const res = await withSheetRetry(() =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId: FEES_SHEET_ID,
+      range: `${SHEET_NAME}!A:Z`,
+    })
+  );
   const rows = res.data.values ?? [];
   const records = rows
     .slice(3)
@@ -142,19 +153,25 @@ export async function readAllFeesFromSheetRaw(): Promise<FeeRecord[]> {
 
 /** Active students only (excludes Pass out and Left/Failed/Removed). */
 export async function readAllFeesFromSheet(): Promise<FeeRecord[]> {
-  const inactive = await getInactiveStudentKeys();
-  const records = (await readAllFeesFromSheetRaw())
-    .filter((r) => !isPassOutClass(r.className, r.studentName))
-    .filter((r) => !feeRecordIsInactive(r, inactive));
+  return cachedSheetRead(
+    CACHE_FEES_ACTIVE,
+    async () => {
+      const inactive = await getInactiveStudentKeys();
+      const records = (await readAllFeesFromSheetRaw())
+        .filter((r) => !isPassOutClass(r.className, r.studentName))
+        .filter((r) => !feeRecordIsInactive(r, inactive));
 
-  return sortByGradeThenName(
-    records,
-    (f) => f.className,
-    (f) => f.studentName
+      return sortByGradeThenName(
+        records,
+        (f) => f.className,
+        (f) => f.studentName
+      );
+    },
+    FEES_CACHE_TTL_MS
   );
 }
 
-/** Always reads live from Google Sheets (no server cache). */
+/** Short-lived cached read (see readAllFeesFromSheet); writes invalidate it. */
 export const getAllFees = readAllFeesFromSheet;
 
 export async function getFeeByName(name: string): Promise<FeeRecord | null> {
