@@ -1,6 +1,14 @@
 import { buildFullName } from "@/lib/admission-utils";
 import { sortByGradeThenName } from "@/lib/sort-by-grade";
 import { getSheetsClient, FEES_SHEET_ID } from "./client";
+import { cachedSheetRead } from "./read-cache";
+import { withSheetRetry } from "./retry";
+
+// Read by every getAllFees() call (inactive-student filter) plus the admissions
+// routes. Cached briefly so concurrent users share one read; all admission
+// writes call invalidateSheetCache()/invalidatePortalCache() to clear it.
+const CACHE_ADMISSIONS_ALL = "admissions:all";
+const ADMISSIONS_CACHE_TTL_MS = 15_000;
 
 export { buildFullName };
 
@@ -281,23 +289,31 @@ export async function ensureAdmissionsSheet(): Promise<void> {
 }
 
 export async function readAllAdmissionsFromSheet(): Promise<AdmissionRecord[]> {
-  await ensureAdmissionsSheet();
-  const sheets = getSheetsClient();
-  const endCol = colLetter(ADMISSION_HEADERS.length - 1);
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: FEES_SHEET_ID,
-    range: `${ADMISSIONS_SHEET}!A:${endCol}`,
-  });
-  const rows = res.data.values ?? [];
-  const records = rows
-    .slice(1)
-    .map((row, i) => rowToAdmission(row as string[], i))
-    .filter(Boolean) as AdmissionRecord[];
+  return cachedSheetRead(
+    CACHE_ADMISSIONS_ALL,
+    async () => {
+      await ensureAdmissionsSheet();
+      const sheets = getSheetsClient();
+      const endCol = colLetter(ADMISSION_HEADERS.length - 1);
+      const res = await withSheetRetry(() =>
+        sheets.spreadsheets.values.get({
+          spreadsheetId: FEES_SHEET_ID,
+          range: `${ADMISSIONS_SHEET}!A:${endCol}`,
+        })
+      );
+      const rows = res.data.values ?? [];
+      const records = rows
+        .slice(1)
+        .map((row, i) => rowToAdmission(row as string[], i))
+        .filter(Boolean) as AdmissionRecord[];
 
-  return sortByGradeThenName(
-    records,
-    (a) => a.standard,
-    (a) => a.fullName
+      return sortByGradeThenName(
+        records,
+        (a) => a.standard,
+        (a) => a.fullName
+      );
+    },
+    ADMISSIONS_CACHE_TTL_MS
   );
 }
 

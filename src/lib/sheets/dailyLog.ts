@@ -1,5 +1,6 @@
 import { normalizePaymentMode, paymentModeLabel, type PaymentMode } from "@/lib/payment-mode";
 import { getSheetsClient, FEES_SHEET_ID } from "./client";
+import { withSheetRetry } from "./retry";
 import {
   amountsMatch,
   normalizeSheetDate,
@@ -172,10 +173,12 @@ export async function appendDailyEntry(entry: DailyEntryInput): Promise<void> {
 export async function getAllDailyEntries(): Promise<DailyEntry[]> {
   await ensureSheet();
   const sheets = getSheetsClient();
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: FEES_SHEET_ID,
-    range: `${SHEET_NAME}!A:H`,
-  });
+  const res = await withSheetRetry(() =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId: FEES_SHEET_ID,
+      range: `${SHEET_NAME}!A:H`,
+    })
+  );
   const rows = (res.data.values ?? []).slice(1);
   return rows
     .map((row, i) => ({
