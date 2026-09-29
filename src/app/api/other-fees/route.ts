@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { recordAudit } from "@/lib/audit";
 import { normalizeFeeTypeName } from "@/lib/other-fee-types";
+import { normalizeReceiptNo } from "@/lib/fees/receipt";
+import { buildSplitParts, saveAllOrNothing } from "@/lib/fees/split-payment";
 import { normalizePaymentMode } from "@/lib/payment-mode";
 import { isPortalActor, requirePortalActor } from "@/lib/portal-auth";
-import { getFeeByName } from "@/lib/sheets/fees";
+import { getFeeByName, getFeeBySrNo } from "@/lib/sheets/fees";
 import {
   appendOtherFeeEntry,
   deleteOtherFeeEntry,
@@ -38,23 +40,33 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const studentName = String(body.studentName ?? "").trim();
+    const srNoInput = String(body.srNo ?? "").trim();
     const date = String(body.date ?? "").trim();
     const feeType = normalizeFeeTypeName(String(body.feeType ?? ""));
-    const amount = Number(body.amount);
+    const isSplit = body.paymentMode === "split";
+    const amount = isSplit
+      ? Number(body.cashAmount) + Number(body.onlineAmount)
+      : Number(body.amount);
     const notes = String(body.notes ?? "").trim();
-    const paymentMode = normalizePaymentMode(body.paymentMode);
 
-    if (!studentName || !date || !feeType || !amount || amount <= 0) {
+    if ((!studentName && !srNoInput) || !date || !feeType || !amount || amount <= 0) {
       return NextResponse.json(
         { error: "studentName, date, feeType, and amount > 0 are required" },
         { status: 400 }
       );
     }
 
-    const feeRecord = await getFeeByName(studentName);
+    let receiptNo: string | undefined;
+    try {
+      receiptNo = normalizeReceiptNo(body.receiptNo);
+    } catch (e) {
+      return NextResponse.json({ error: (e as Error).message }, { status: 400 });
+    }
+
+    const feeRecord = srNoInput ? await getFeeBySrNo(srNoInput) : await getFeeByName(studentName);
     if (!feeRecord) {
       return NextResponse.json(
-        { error: `Student "${studentName}" not found in fee records` },
+        { error: `Student "${studentName || srNoInput}" not found in fee records` },
         { status: 404 }
       );
     }
@@ -66,28 +78,76 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    await appendOtherFeeEntry({
-      date,
-      studentName: feeRecord.studentName,
-      className: feeRecord.className,
-      srNo: feeRecord.srNo,
-      feeType,
-      amount,
-      paymentMode,
-      notes,
-    });
+    let parts: { paymentMode: "cash" | "online"; amount: number; notes: string }[];
+    if (isSplit) {
+      try {
+        parts = buildSplitParts(Number(body.cashAmount), Number(body.onlineAmount), notes).map(
+          (p) => ({ paymentMode: p.paymentMode, amount: p.amount, notes: p.note })
+        );
+      } catch (e) {
+        return NextResponse.json({ error: (e as Error).message }, { status: 400 });
+      }
+    } else {
+      parts = [{ paymentMode: normalizePaymentMode(body.paymentMode), amount, notes }];
+    }
+
+    try {
+      await saveAllOrNothing(
+        parts,
+        (p) =>
+          appendOtherFeeEntry({
+            date,
+            studentName: feeRecord.studentName,
+            className: feeRecord.className,
+            srNo: feeRecord.srNo,
+            feeType,
+            amount: p.amount,
+            paymentMode: p.paymentMode,
+            notes: p.notes,
+            ...(receiptNo ? { receiptNo } : {}),
+          }),
+        (rowId, p) =>
+          deleteOtherFeeEntry(rowId, {
+            srNo: feeRecord.srNo,
+            date,
+            amount: p.amount,
+            feeType,
+          })
+      );
+    } catch (e) {
+      invalidateSheetCache();
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      return NextResponse.json(
+        {
+          error: isSplit
+            ? `${msg} No part of the split payment was kept — check the payment history before retrying.`
+            : msg,
+        },
+        { status: 500 }
+      );
+    }
 
     await recordAudit(req, {
       action: "create",
       resource: "other-fees",
       resourceId: feeRecord.srNo,
-      summary: `Other fee ₹${amount} (${feeType}) — ${feeRecord.studentName}`,
-      details: { date, feeType, amount, paymentMode, notes },
+      summary: isSplit
+        ? `Other fee ₹${amount} split (cash ₹${parts[0].amount} + online ₹${parts[1].amount}) (${feeType}) — ${feeRecord.studentName}`
+        : `Other fee ₹${amount} (${feeType}) — ${feeRecord.studentName}`,
+      details: {
+        date,
+        feeType,
+        amount,
+        paymentMode: isSplit ? "split" : parts[0].paymentMode,
+        parts: parts.map((p) => ({ paymentMode: p.paymentMode, amount: p.amount })),
+        notes,
+        receiptNo,
+      },
       actor,
     });
 
     invalidateSheetCache();
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, receiptNo: receiptNo ?? null, rows: parts.length });
   } catch (err) {
     console.error("POST other-fees:", err);
     return NextResponse.json(
@@ -117,6 +177,13 @@ export async function PATCH(req: NextRequest) {
       update.feeType = normalizeFeeTypeName(String(body.feeType));
     }
     if (body.notes !== undefined) update.notes = String(body.notes).trim();
+    if (body.receiptNo !== undefined) {
+      try {
+        update.receiptNo = normalizeReceiptNo(body.receiptNo) ?? "";
+      } catch (e) {
+        return NextResponse.json({ error: (e as Error).message }, { status: 400 });
+      }
+    }
 
     if (update.amount !== undefined && (isNaN(update.amount) || update.amount <= 0)) {
       return NextResponse.json({ error: "amount must be > 0" }, { status: 400 });
