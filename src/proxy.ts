@@ -25,7 +25,34 @@ function isFeesPath(pathname: string): boolean {
   );
 }
 
+/** API routes that authenticate themselves (next-auth handshake, bearer-secret cron). */
+const API_SELF_AUTH_PREFIXES = ["/api/auth/", "/api/cron/"];
+
+/** API routes teachers may call; every other /api route is admin (fees) only. */
+const API_ATTENDANCE_PREFIXES = ["/api/attendance/", "/api/portal/access"];
+
+function apiDenied(error: string, status: 401 | 403) {
+  return NextResponse.json({ error }, { status });
+}
+
+async function guardApi(request: NextRequest, pathname: string) {
+  if (API_SELF_AUTH_PREFIXES.some((p) => pathname.startsWith(p))) {
+    return NextResponse.next();
+  }
+  const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
+  if (!token?.email) return apiDenied("Sign in required.", 401);
+  const email = String(token.email);
+  const allowed = API_ATTENDANCE_PREFIXES.some((p) => pathname.startsWith(p))
+    ? canAccessAttendance(email)
+    : canAccessFees(email);
+  return allowed ? NextResponse.next() : apiDenied("You do not have access to this data.", 403);
+}
+
 export async function proxy(request: NextRequest) {
+  if (request.nextUrl.pathname.startsWith("/api/")) {
+    return guardApi(request, request.nextUrl.pathname);
+  }
+
   const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
 
   if (!token?.email) {
@@ -74,5 +101,6 @@ export const config = {
     "/udise/:path*",
     "/admin/:path*",
     "/attendance/:path*",
+    "/api/:path*",
   ],
 };
