@@ -484,6 +484,7 @@ export default function DailyEntryForm() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             entryId: item.id,
+            srNo: item.srNo,
             amount: newAmt,
             paymentMode: editPaymentMode,
             feeType: editFeeType,

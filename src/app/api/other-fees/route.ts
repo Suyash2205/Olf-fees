@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { InputError } from "@/lib/input-error";
 import { recordAudit } from "@/lib/audit";
 import { normalizeFeeTypeName } from "@/lib/other-fee-types";
 import { normalizeReceiptNo } from "@/lib/fees/receipt";
@@ -189,7 +190,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "amount must be > 0" }, { status: 400 });
     }
 
-    await updateOtherFeeEntry(entryId, update);
+    await updateOtherFeeEntry(entryId, update, body.srNo ? String(body.srNo) : undefined);
 
     await recordAudit(req, {
       action: "update",
@@ -203,6 +204,9 @@ export async function PATCH(req: NextRequest) {
     invalidateSheetCache();
     return NextResponse.json({ ok: true });
   } catch (err) {
+    if (err instanceof InputError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error("PATCH other-fees:", err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Unknown error" },

@@ -1,6 +1,7 @@
 import { normalizePaymentMode, paymentModeLabel, type PaymentMode } from "@/lib/payment-mode";
 import { parseReceiptCell, receiptCellValue } from "@/lib/fees/receipt";
 import { getSheetsClient, FEES_SHEET_ID } from "./client";
+import { InputError } from "@/lib/input-error";
 import { columnLetter } from "./keyed-tab";
 import { withSheetRetry } from "./retry";
 import {
@@ -241,10 +242,24 @@ export async function getDailyEntriesForStudent(srNo: string): Promise<DailyEntr
 
 export async function updateDailyEntry(
   rowId: string,
-  update: { amount?: number; paymentMode?: PaymentMode; comment?: string; receiptNo?: string }
+  update: { amount?: number; paymentMode?: PaymentMode; comment?: string; receiptNo?: string },
+  expectedSrNo?: string
 ): Promise<void> {
   await ensureSheet();
   const sheets = getSheetsClient();
+
+  // Rows shift when another payment is deleted, so the row number the page loaded may
+  // now hold a different student's payment. Refuse rather than edit the wrong row.
+  if (expectedSrNo !== undefined) {
+    const current = await readDailyRow(Number(rowId));
+    const actualSrNo = String(current?.[3] ?? "").trim();
+    if (actualSrNo !== expectedSrNo.trim()) {
+      throw new InputError(
+        "This payment has moved in the sheet (another entry was changed). Refresh the page and try again.",
+        409
+      );
+    }
+  }
   const data: { range: string; values: (string | number)[][] }[] = [];
 
   if (update.amount !== undefined) {

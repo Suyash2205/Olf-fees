@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { InputError } from "@/lib/input-error";
 import { recordAudit } from "@/lib/audit";
 import { normalizeReceiptNo } from "@/lib/fees/receipt";
 import { buildSplitParts, saveAllOrNothing } from "@/lib/fees/split-payment";
@@ -318,7 +319,7 @@ export async function PATCH(req: NextRequest) {
       ...(receiptNo !== undefined ? { receiptNo } : {}),
       ...(newPaymentMode !== undefined ? { paymentMode: newPaymentMode } : {}),
       ...(comment !== undefined ? { comment } : {}),
-    });
+    }, srNo);
 
     const feeRecord = await getFeeByName(studentName);
     if (!feeRecord) {
@@ -338,6 +339,9 @@ export async function PATCH(req: NextRequest) {
     });
     return NextResponse.json({ ok: true });
   } catch (err) {
+    if (err instanceof InputError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error("edit entry error:", err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Unknown error" },

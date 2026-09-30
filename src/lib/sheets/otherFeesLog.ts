@@ -5,6 +5,7 @@ import {
 import { parseReceiptCell, receiptCellValue } from "@/lib/fees/receipt";
 import { normalizePaymentMode, paymentModeLabel, type PaymentMode } from "@/lib/payment-mode";
 import { getSheetsClient, FEES_SHEET_ID } from "./client";
+import { InputError } from "@/lib/input-error";
 import { columnLetter } from "./keyed-tab";
 import {
   amountsMatch,
@@ -396,8 +397,20 @@ export async function appendOtherFeeEntry(entry: OtherFeeEntryInput): Promise<st
 
 export async function updateOtherFeeEntry(
   rowId: string,
-  update: Partial<Pick<OtherFeeEntryInput, "amount" | "paymentMode" | "feeType" | "notes" | "receiptNo">>
+  update: Partial<Pick<OtherFeeEntryInput, "amount" | "paymentMode" | "feeType" | "notes" | "receiptNo">>,
+  expectedSrNo?: string
 ): Promise<void> {
+  // Rows shift when another entry is deleted; refuse to edit a row that now belongs to
+  // a different student (only checked when the caller sends the Sr No it loaded).
+  if (expectedSrNo) {
+    const current = await readOtherFeeRow(Number(rowId));
+    if (String(current?.[3] ?? "").trim() !== expectedSrNo.trim()) {
+      throw new InputError(
+        "This entry has moved in the sheet (another entry was changed). Refresh the page and try again.",
+        409
+      );
+    }
+  }
   await ensureOtherFeesSheets();
   const sheets = getSheetsClient();
   const data: { range: string; values: (string | number)[][] }[] = [];
