@@ -6,6 +6,7 @@ import { Check, ChevronRight, RefreshCw, Search, Users } from "lucide-react";
 import type { AttendanceStatus } from "@/lib/attendance/types";
 import { todayISO } from "@/lib/attendance/types";
 import { portalFetch } from "@/lib/portal-fetch";
+import { dayStatus, nonSchoolDayMessage, type CalendarEntry } from "@/lib/attendance/school-calendar";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 
 type Student = { srNo: string; studentName: string; className: string };
@@ -95,6 +96,45 @@ export default function AttendanceRecordClient() {
   const [alreadySubmitted, setAlreadySubmitted] = useState(false);
   const [bulkUnlocked, setBulkUnlocked] = useState(false);
   const [search, setSearch] = useState("");
+  const [calendar, setCalendar] = useState<CalendarEntry[] | null>(null);
+  const [calendarError, setCalendarError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await portalFetch("/api/attendance/calendar");
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "Failed to load the school calendar");
+        if (!cancelled) {
+          setCalendar(data.entries ?? []);
+          setCalendarError(null);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setCalendar(null);
+          setCalendarError(e instanceof Error ? e.message : "Failed to load the school calendar");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // If the calendar failed to load, fall back to the default rule (Mon–Sat open, Sunday
+  // closed) rather than blocking teachers; the server applies the same fallback.
+  const effectiveCalendar = useMemo(
+    () => calendar ?? (calendarError ? [] : null),
+    [calendar, calendarError]
+  );
+  const blockedMessage = useMemo(
+    () =>
+      effectiveCalendar && classParam
+        ? nonSchoolDayMessage(activeDate, classParam, effectiveCalendar)
+        : null,
+    [effectiveCalendar, classParam, activeDate]
+  );
 
   const loadClasses = useCallback(async (options?: { background?: boolean }) => {
     const background = options?.background ?? false;
@@ -265,14 +305,26 @@ export default function AttendanceRecordClient() {
           </div>
         )}
 
+        {calendarError && (
+          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {calendarError}. The holiday list could not load, so only Sundays are treated as holidays right now. Refresh to retry.
+          </div>
+        )}
+
         <div className="grid gap-3 sm:grid-cols-2">
-          {classes.map((c) => (
+          {classes.map((c) => {
+            const day = effectiveCalendar ? dayStatus(today, c.className, effectiveCalendar) : null;
+            const holiday = day && !day.isSchoolDay ? day : null;
+            return (
             <button
               key={c.className}
               type="button"
+              disabled={!!holiday}
               onClick={() => router.push(`/attendance/record?class=${encodeURIComponent(c.className)}`)}
               className={`flex items-center justify-between rounded-xl border p-4 text-left transition-colors ${
-                c.markedToday
+                holiday
+                  ? "border-slate-200 bg-slate-100 cursor-not-allowed opacity-70"
+                  : c.markedToday
                   ? "border-green-300 bg-green-50 hover:bg-green-100/80"
                   : "border-slate-200 bg-white hover:border-blue-300 hover:bg-blue-50/40"
               }`}
@@ -286,16 +338,21 @@ export default function AttendanceRecordClient() {
                 <p
                   className={`text-xs mt-0.5 ${c.markedToday ? "text-green-700 font-medium" : "text-slate-500"}`}
                 >
-                  {c.markedToday ? "Attendance already marked" : `${c.studentCount} students`}
+                  {holiday
+                    ? `Holiday: ${holiday.title || "no school today"}`
+                    : c.markedToday
+                      ? "Attendance already marked"
+                      : `${c.studentCount} students`}
                 </p>
               </div>
-              {c.markedToday ? (
+              {holiday ? null : c.markedToday ? (
                 <Check className="h-5 w-5 text-green-600 shrink-0" />
               ) : (
                 <ChevronRight className="h-5 w-5 text-slate-400 shrink-0" />
               )}
             </button>
-          ))}
+            );
+          })}
         </div>
       </div>
     );
@@ -324,6 +381,18 @@ export default function AttendanceRecordClient() {
           <p className="text-xs text-red-600 font-medium mt-0.5">{counts.absent} absent</p>
         </div>
       </div>
+
+      {blockedMessage && (
+        <div className="rounded-xl border border-orange-300 bg-orange-50 px-4 py-3 text-sm font-medium text-orange-900">
+          {blockedMessage}. Attendance cannot be recorded for this day.
+        </div>
+      )}
+
+      {calendarError && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {calendarError}. The holiday list could not load: you can still save, but check today is not a school holiday. Refresh to retry.
+        </div>
+      )}
 
       {alreadySubmitted && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
@@ -482,7 +551,7 @@ export default function AttendanceRecordClient() {
         <button
           type="button"
           onClick={() => setConfirmOpen(true)}
-          disabled={saving}
+          disabled={saving || !!blockedMessage || effectiveCalendar === null}
           className="w-full rounded-xl bg-blue-600 py-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60 shadow-sm"
         >
           Submit attendance

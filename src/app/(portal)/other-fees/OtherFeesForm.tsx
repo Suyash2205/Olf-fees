@@ -28,6 +28,14 @@ import {
   paymentModeLabel,
   type PaymentMode,
 } from "@/lib/payment-mode";
+import {
+  PaymentModePicker,
+  ReceiptField,
+  SplitAmountInputs,
+  paymentBody,
+  RECEIPT_MAX,
+  type PaymentModeChoice,
+} from "@/components/fees/PaymentFields";
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
@@ -101,7 +109,10 @@ export default function OtherFeesForm() {
   const [date, setDate] = useState(todayISO());
   const [amount, setAmount] = useState("");
   const [notes, setNotes] = useState("");
-  const [paymentMode, setPaymentMode] = useState<PaymentMode>("cash");
+  const [paymentMode, setPaymentMode] = useState<PaymentModeChoice>("cash");
+  const [cashAmount, setCashAmount] = useState("");
+  const [onlineAmount, setOnlineAmount] = useState("");
+  const [receiptNo, setReceiptNo] = useState("");
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -114,6 +125,7 @@ export default function OtherFeesForm() {
   const [editPaymentMode, setEditPaymentMode] = useState<PaymentMode>("cash");
   const [editFeeType, setEditFeeType] = useState("");
   const [editNotes, setEditNotes] = useState("");
+  const [editReceipt, setEditReceipt] = useState("");
   const [editSaving, setEditSaving] = useState(false);
 
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -223,8 +235,13 @@ export default function OtherFeesForm() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!selectedFee || !date || !feeType || !amount || Number(amount) <= 0) {
+    if (!selectedFee || !date || !feeType) {
       setError("Select a student, fee type, and enter a valid amount.");
+      return;
+    }
+    const pay = paymentBody(paymentMode, amount, cashAmount, onlineAmount);
+    if ("error" in pay) {
+      setError(pay.error);
       return;
     }
     if (feeType.toLowerCase() === "other" && !notes.trim()) {
@@ -239,18 +256,22 @@ export default function OtherFeesForm() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          srNo: selectedFee.srNo,
           studentName: selectedFee.studentName,
           date,
           feeType,
-          amount: Number(amount),
-          paymentMode,
           notes: notes.trim(),
+          receiptNo: receiptNo.trim(),
+          ...pay.fields,
         }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "Failed");
       setSuccess(true);
       setAmount("");
+      setCashAmount("");
+      setOnlineAmount("");
+      setReceiptNo("");
       setNotes("");
       setTimeout(() => setSuccess(false), 3000);
       await refreshEntries(selectedFee.srNo);
@@ -306,13 +327,18 @@ export default function OtherFeesForm() {
           paymentMode: editPaymentMode,
           feeType: editFeeType,
           notes: editNotes.trim(),
+          receiptNo: editReceipt.trim(),
         }),
       });
-      if (!res.ok) throw new Error("Update failed");
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "Update failed");
+      }
       setEditingId(null);
       if (selectedFee) await refreshEntries(selectedFee.srNo);
-    } catch {
-      /* stay in edit */
+    } catch (err) {
+      // stay in edit, and say why
+      setError(err instanceof Error ? err.message : "Update failed");
     } finally {
       setEditSaving(false);
     }
@@ -458,19 +484,30 @@ export default function OtherFeesForm() {
             />
           </div>
 
+          <ReceiptField value={receiptNo} onChange={setReceiptNo} />
+
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">
               <IndianRupee className="inline w-3.5 h-3.5 mr-1 text-slate-400" />
-              Amount (₹)
+              {paymentMode === "split" ? "Amounts (₹)" : "Amount (₹)"}
             </label>
-            <input
-              type="number"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="Enter amount for this student"
-              min={1}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
+            {paymentMode === "split" ? (
+              <SplitAmountInputs
+                cash={cashAmount}
+                online={onlineAmount}
+                onCash={setCashAmount}
+                onOnline={setOnlineAmount}
+              />
+            ) : (
+              <input
+                type="number"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="Enter amount for this student"
+                min={1}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            )}
           </div>
 
           <div>
@@ -489,24 +526,7 @@ export default function OtherFeesForm() {
 
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2">Payment mode</label>
-            <div className="grid grid-cols-2 gap-2">
-              {PAYMENT_MODES.map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() => setPaymentMode(mode)}
-                  className={`px-3 py-2.5 text-sm font-medium rounded-lg border transition-colors ${
-                    paymentMode === mode
-                      ? mode === "cash"
-                        ? "bg-emerald-600 text-white border-emerald-600"
-                        : "bg-violet-600 text-white border-violet-600"
-                      : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"
-                  }`}
-                >
-                  {paymentModeLabel(mode)}
-                </button>
-              ))}
-            </div>
+            <PaymentModePicker value={paymentMode} onChange={setPaymentMode} />
           </div>
 
           {error && (
@@ -570,6 +590,11 @@ export default function OtherFeesForm() {
                       </span>
                     )}
                   </div>
+                  {entry.receiptNo && (
+                    <p className="text-[11px] font-medium text-amber-800 mt-1">
+                      Receipt No <span className="font-mono">{entry.receiptNo}</span>
+                    </p>
+                  )}
                   {entry.notes && (
                     <p className="text-xs text-slate-400 mt-1 truncate">{entry.notes}</p>
                   )}
@@ -594,6 +619,14 @@ export default function OtherFeesForm() {
                         min={1}
                       />
                     </div>
+                    <input
+                      type="text"
+                      value={editReceipt}
+                      maxLength={RECEIPT_MAX}
+                      onChange={(e) => setEditReceipt(e.target.value)}
+                      placeholder="Receipt No"
+                      className="text-sm border border-amber-200 rounded px-2 py-1"
+                    />
                     <input
                       type="text"
                       value={editNotes}
@@ -647,6 +680,7 @@ export default function OtherFeesForm() {
                           setEditPaymentMode(entry.paymentMode ?? "cash");
                           setEditFeeType(entry.feeType);
                           setEditNotes(entry.notes);
+                          setEditReceipt(entry.receiptNo ?? "");
                           setConfirmDeleteId(null);
                         }}
                         className="text-slate-300 hover:text-blue-500 p-1"

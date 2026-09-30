@@ -16,6 +16,25 @@ for (const line of readFileSync(resolve(root, ".env.local"), "utf8").split("\n")
 const SHEET = "Other Fees Log";
 const id = process.env.FEES_SHEET_ID;
 
+// The log now has a far-right "Receipt No" column. This script rewrites only A:H, so running it
+// would leave receipts attached to the wrong rows. Use compactOtherFeesLog() in
+// src/lib/sheets/otherFeesLog.ts instead, which carries the receipt with its row.
+{
+  const { google: g } = await import("googleapis");
+  const a = new g.auth.GoogleAuth({
+    credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON),
+    scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
+  });
+  const head = await g.sheets({ version: "v4", auth: a }).spreadsheets.values.get({
+    spreadsheetId: id,
+    range: `${SHEET}!1:1`,
+  });
+  if ((head.data.values?.[0] ?? []).includes("Receipt No")) {
+    console.error("Refusing to run: the log has a Receipt No column this script does not carry along.");
+    process.exit(1);
+  }
+}
+
 const BACKFILL = [
   {
     date: "2026-06-16",

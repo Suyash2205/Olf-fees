@@ -1,5 +1,8 @@
 import { normalizePaymentMode, paymentModeLabel, type PaymentMode } from "@/lib/payment-mode";
+import { parseReceiptCell, receiptCellValue } from "@/lib/fees/receipt";
 import { getSheetsClient, FEES_SHEET_ID } from "./client";
+import { InputError } from "@/lib/input-error";
+import { columnLetter } from "./keyed-tab";
 import { withSheetRetry } from "./retry";
 import {
   amountsMatch,
@@ -24,6 +27,8 @@ export interface DailyEntry {
   paymentMode?: PaymentMode;
   /** Optional note (e.g. partial payment, receipt ref) */
   comment?: string;
+  /** Optional receipt number (far-right "Receipt No" column). */
+  receiptNo?: string;
 }
 
 export type DailyEntryInput = Omit<DailyEntry, "id">;
@@ -39,7 +44,15 @@ const HEADERS = [
   "Comment",
 ] as const;
 
+const RECEIPT_HEADER = "Receipt No";
+
 let sheetReady = false;
+/** 0-based column index of "Receipt No" (located by header name; added at the far right if missing). */
+let receiptCol = 8;
+
+function receiptColLetter(): string {
+  return columnLetter(receiptCol);
+}
 
 async function ensureSheet(): Promise<void> {
   if (sheetReady) return;
@@ -70,10 +83,11 @@ async function ensureSheet(): Promise<void> {
       });
       await sheets.spreadsheets.values.update({
         spreadsheetId: FEES_SHEET_ID,
-        range: `${SHEET_NAME}!A1:H1`,
+        range: `${SHEET_NAME}!A1:I1`,
         valueInputOption: "USER_ENTERED",
-        requestBody: { values: [[...HEADERS]] },
+        requestBody: { values: [[...HEADERS, RECEIPT_HEADER]] },
       });
+      receiptCol = HEADERS.length;
       sheetReady = true;
       return;
     }
@@ -81,9 +95,9 @@ async function ensureSheet(): Promise<void> {
 
   const headerRes = await sheets.spreadsheets.values.get({
     spreadsheetId: FEES_SHEET_ID,
-    range: `${SHEET_NAME}!A1:H1`,
+    range: `${SHEET_NAME}!1:1`,
   });
-  const headers = headerRes.data.values?.[0] ?? [];
+  const headers = (headerRes.data.values?.[0] ?? []).map((h) => String(h ?? "").trim());
   if (headers[6] !== "Payment Mode") {
     await sheets.spreadsheets.values.update({
       spreadsheetId: FEES_SHEET_ID,
@@ -100,6 +114,20 @@ async function ensureSheet(): Promise<void> {
       requestBody: { values: [["Comment"]] },
     });
   }
+  // "Receipt No": located by name; if absent, ONE header cell is added after the last existing header.
+  let receiptIdx = headers.indexOf(RECEIPT_HEADER);
+  if (receiptIdx < 0) {
+    let last = headers.length - 1;
+    while (last >= 0 && !headers[last]) last--;
+    receiptIdx = last + 1;
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: FEES_SHEET_ID,
+      range: `${SHEET_NAME}!${columnLetter(receiptIdx)}1`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [[RECEIPT_HEADER]] },
+    });
+  }
+  receiptCol = receiptIdx;
   sheetReady = true;
 }
 
@@ -131,7 +159,7 @@ async function readDailyRow(row: number): Promise<string[] | undefined> {
   const sheets = getSheetsClient();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: FEES_SHEET_ID,
-    range: `${SHEET_NAME}!A${row}:H${row}`,
+    range: `${SHEET_NAME}!A${row}:${receiptColLetter()}${row}`,
   });
   return res.data.values?.[0];
 }
@@ -147,27 +175,38 @@ function dailyRowMatches(entry: DailyEntryInput, row: string[]): boolean {
     amountsMatch(parseSheetAmount(row[4]), entry.amount) &&
     (entry.feeMonth === undefined || feeMonth === entry.feeMonth) &&
     (mode === undefined || rowMode === mode) &&
-    (entry.comment === undefined || (row[7]?.trim() ?? "") === entry.comment.trim())
+    (entry.comment === undefined || (row[7]?.trim() ?? "") === entry.comment.trim()) &&
+    (entry.receiptNo ?? "") === (parseReceiptCell(row[receiptCol]) ?? "")
   );
 }
 
-export async function appendDailyEntry(entry: DailyEntryInput): Promise<void> {
+/** Append one row; returns its sheet row number (as the entry id) so callers can undo it. */
+export async function appendDailyEntry(entry: DailyEntryInput): Promise<string> {
   await ensureSheet();
   const nextRow = await nextDailyDataRow();
   const sheets = getSheetsClient();
   const values = entryToRowValues(entry);
 
-  await sheets.spreadsheets.values.update({
+  // Two ranges in one call: A:H, and the far-right Receipt No cell.
+  await sheets.spreadsheets.values.batchUpdate({
     spreadsheetId: FEES_SHEET_ID,
-    range: `${SHEET_NAME}!A${nextRow}:H${nextRow}`,
-    valueInputOption: "USER_ENTERED",
-    requestBody: { values: [values] },
+    requestBody: {
+      valueInputOption: "USER_ENTERED",
+      data: [
+        { range: `${SHEET_NAME}!A${nextRow}:H${nextRow}`, values: [values] },
+        {
+          range: `${SHEET_NAME}!${receiptColLetter()}${nextRow}`,
+          values: [[receiptCellValue(entry.receiptNo)]],
+        },
+      ],
+    },
   });
 
   await verifySheetWrite(async () => {
     const row = await readDailyRow(nextRow);
     return row != null && dailyRowMatches(entry, row);
   }, "School fee payment");
+  return String(nextRow);
 }
 
 export async function getAllDailyEntries(): Promise<DailyEntry[]> {
@@ -176,7 +215,7 @@ export async function getAllDailyEntries(): Promise<DailyEntry[]> {
   const res = await withSheetRetry(() =>
     sheets.spreadsheets.values.get({
       spreadsheetId: FEES_SHEET_ID,
-      range: `${SHEET_NAME}!A:H`,
+      range: `${SHEET_NAME}!A:${receiptColLetter()}`,
     })
   );
   const rows = (res.data.values ?? []).slice(1);
@@ -191,6 +230,7 @@ export async function getAllDailyEntries(): Promise<DailyEntry[]> {
       feeMonth: row[5] ? Number(row[5]) : undefined,
       paymentMode: parsePaymentMode(row[6]),
       comment: row[7]?.trim() || undefined,
+      receiptNo: parseReceiptCell(row[receiptCol]),
     }))
     .filter((e) => e.date && e.studentName);
 }
@@ -202,10 +242,24 @@ export async function getDailyEntriesForStudent(srNo: string): Promise<DailyEntr
 
 export async function updateDailyEntry(
   rowId: string,
-  update: { amount?: number; paymentMode?: PaymentMode; comment?: string }
+  update: { amount?: number; paymentMode?: PaymentMode; comment?: string; receiptNo?: string },
+  expectedSrNo?: string
 ): Promise<void> {
   await ensureSheet();
   const sheets = getSheetsClient();
+
+  // Rows shift when another payment is deleted, so the row number the page loaded may
+  // now hold a different student's payment. Refuse rather than edit the wrong row.
+  if (expectedSrNo !== undefined) {
+    const current = await readDailyRow(Number(rowId));
+    const actualSrNo = String(current?.[3] ?? "").trim();
+    if (actualSrNo !== expectedSrNo.trim()) {
+      throw new InputError(
+        "This payment has moved in the sheet (another entry was changed). Refresh the page and try again.",
+        409
+      );
+    }
+  }
   const data: { range: string; values: (string | number)[][] }[] = [];
 
   if (update.amount !== undefined) {
@@ -224,6 +278,13 @@ export async function updateDailyEntry(
     data.push({
       range: `${SHEET_NAME}!H${rowId}`,
       values: [[update.comment.trim()]],
+    });
+  }
+
+  if (update.receiptNo !== undefined) {
+    data.push({
+      range: `${SHEET_NAME}!${receiptColLetter()}${rowId}`,
+      values: [[receiptCellValue(update.receiptNo.trim() || undefined)]],
     });
   }
 
@@ -249,6 +310,12 @@ export async function updateDailyEntry(
       if (actual !== expected) return false;
     }
     if (update.comment !== undefined && (row[7]?.trim() ?? "") !== update.comment.trim()) {
+      return false;
+    }
+    if (
+      update.receiptNo !== undefined &&
+      (parseReceiptCell(row[receiptCol]) ?? "") !== update.receiptNo.trim()
+    ) {
       return false;
     }
     return true;
@@ -321,6 +388,20 @@ export async function deleteDailyEntry(
             : undefined
         );
 
+  // Count identical rows first: a split payment can leave two rows with the same
+  // student/date/amount (e.g. 5000 cash + 5000 online), so "no match remains" would be wrong.
+  const countMatching = async () => {
+    if (!snapshot) return 0;
+    const entries = await getAllDailyEntries();
+    return entries.filter(
+      (e) =>
+        e.srNo === snapshot.srNo &&
+        e.date === snapshot.date &&
+        amountsMatch(e.amount, snapshot.amount)
+    ).length;
+  };
+  const countBefore = await countMatching();
+
   await sheets.spreadsheets.batchUpdate({
     spreadsheetId: FEES_SHEET_ID,
     requestBody: {
@@ -335,14 +416,6 @@ export async function deleteDailyEntry(
   });
 
   if (snapshot) {
-    await verifySheetWrite(async () => {
-      const entries = await getAllDailyEntries();
-      return !entries.some(
-        (e) =>
-          e.srNo === snapshot.srNo &&
-          e.date === snapshot.date &&
-          amountsMatch(e.amount, snapshot.amount)
-      );
-    }, "School fee payment delete");
+    await verifySheetWrite(async () => (await countMatching()) < countBefore, "School fee payment delete");
   }
 }
