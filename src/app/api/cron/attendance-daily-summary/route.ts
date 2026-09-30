@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  buildDailyAttendanceSummary,
-  isWeekdayInTimeZone,
-  todayIsoInTimeZone,
-} from "@/lib/attendance/daily-summary";
+import { buildDailyAttendanceSummary, todayIsoInTimeZone } from "@/lib/attendance/daily-summary";
+import { isSchoolDay, isSchoolDayForAnyClass } from "@/lib/attendance/school-calendar";
+import { getAttendanceClassSummaries } from "@/lib/attendance/students";
+import { readCalendarEntries } from "@/lib/sheets/school-calendar";
 import {
   buildAttendanceDailyEmailHtml,
   buildAttendanceDailyEmailSubject,
@@ -26,13 +25,19 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  if (!isWeekdayInTimeZone()) {
-    return NextResponse.json({ ok: true, skipped: true, reason: "weekend" });
-  }
-
   try {
     const dateIso = todayIsoInTimeZone();
+
+    // School calendar replaces the old weekday gate: skip when no class has school today.
+    const [classes, entries] = await Promise.all([getAttendanceClassSummaries(), readCalendarEntries()]);
+    const classNames = classes.map((c) => c.className);
+    if (!isSchoolDayForAnyClass(dateIso, classNames, entries)) {
+      return NextResponse.json({ ok: true, skipped: true, reason: "not a school day" });
+    }
+
     const summary = await buildDailyAttendanceSummary(dateIso);
+    // A class on holiday today is not "unmarked".
+    summary.unmarkedClasses = summary.unmarkedClasses.filter((c) => isSchoolDay(dateIso, c, entries));
     const recipients = parseRecipientList(process.env.ATTENDANCE_SUMMARY_EMAILS);
 
     if (recipients.length === 0) {

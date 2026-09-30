@@ -4,7 +4,9 @@ import {
   computeAttendanceDashboard,
   type AttendancePeriod,
 } from "@/lib/attendance/analytics";
+import { filterToSchoolDays } from "@/lib/attendance/school-calendar";
 import { readAllAttendanceRows } from "@/lib/sheets/attendance";
+import { readCalendarEntries } from "@/lib/sheets/school-calendar";
 
 const PERIODS = new Set<AttendancePeriod>(["7d", "30d", "90d", "all"]);
 
@@ -19,7 +21,9 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const rows = await readAllAttendanceRows();
+    const [allRows, entries] = await Promise.all([readAllAttendanceRows(), readCalendarEntries()]);
+    // Marks made on holidays / non-school days stay in the sheet but are ignored here.
+    const rows = filterToSchoolDays(allRows, entries);
     const data = computeAttendanceDashboard(rows, period);
     return NextResponse.json(data);
   } catch (err) {
