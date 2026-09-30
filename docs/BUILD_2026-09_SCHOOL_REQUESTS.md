@@ -274,3 +274,25 @@ break.** Read `AGENTS.md` and `docs/ATTENDANCE_SYSTEM_REFERENCE.md` before start
 - APAAR ID tracking: RD will decide later.
 - Changing the admin password: RD will decide.
 - WhatsApp bot: separate project (`docs/WHATSAPP_ATTENDANCE_BOT_PLAN.md`).
+
+---
+
+## 7. Changes made during the build (2026-09-30)
+
+- **Saturdays are school days by default** (Mon–Sat open, Sunday closed). The data showed
+  attendance marked on 8 Saturdays (Jun–Sep 2026) and no Sundays; blocking Saturdays would
+  have broken working behaviour. A Saturday off is entered as a `Holiday`.
+- **The 7:30 PM summary cron stays `0 14 * * 1-5`** (unchanged). Its handler now also skips
+  calendar holidays and no longer lists holiday classes as unmarked.
+- **Calendar read failure never blocks attendance.** If the School Calendar tab can't be read
+  (e.g. a Sheets 429), the default rule applies (Mon–Sat open) with a visible warning.
+- **Absence email skips days when no class marked anything** (an unrecorded day off must not
+  re-send yesterday's list). Schedule `0 11 * * 1-6`; follow-ups `0 3 * * 1-6` (~8:30–9:30 IST).
+- **Pre-existing bug fixed:** editing a fee / other-fee payment wrote to the row number the
+  page had loaded. If a row above it was deleted meanwhile, the edit silently changed another
+  student's payment. Edits now verify the row's Sr No and return 409 on mismatch.
+- **Verification:** 218 unit tests; old-vs-new differential run of every existing money and
+  attendance action on the TEST sheet (0 cell differences, 0 read-endpoint differences);
+  77-check end-to-end run of new features; both stream integration scripts; headless-browser
+  load of all 23 pages as admin and teacher; UI click-through of split payment, receipts,
+  other fees and the follow-up panel.
