@@ -18,7 +18,12 @@ export async function buildChronicAbsenceReport(
   const markedToday = anyMarkedOn(rows, todayIso);
   const report = computeChronicAbsence({
     rows,
-    roster: fees.map((f) => ({ srNo: f.srNo, studentName: f.studentName, className: f.className })),
+    // One roster entry per Sr No, even if the fee sheet has a duplicated row.
+    roster: [...new Map(fees.map((f) => [f.srNo, f])).values()].map((f) => ({
+      srNo: f.srNo,
+      studentName: f.studentName,
+      className: f.className,
+    })),
     entries,
     todayIso,
   });

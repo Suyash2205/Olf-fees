@@ -122,9 +122,18 @@ export default function AttendanceRecordClient() {
     };
   }, []);
 
+  // If the calendar failed to load, fall back to the default rule (Mon–Sat open, Sunday
+  // closed) rather than blocking teachers; the server applies the same fallback.
+  const effectiveCalendar = useMemo(
+    () => calendar ?? (calendarError ? [] : null),
+    [calendar, calendarError]
+  );
   const blockedMessage = useMemo(
-    () => (calendar && classParam ? nonSchoolDayMessage(activeDate, classParam, calendar) : null),
-    [calendar, classParam, activeDate]
+    () =>
+      effectiveCalendar && classParam
+        ? nonSchoolDayMessage(activeDate, classParam, effectiveCalendar)
+        : null,
+    [effectiveCalendar, classParam, activeDate]
   );
 
   const loadClasses = useCallback(async (options?: { background?: boolean }) => {
@@ -298,13 +307,13 @@ export default function AttendanceRecordClient() {
 
         {calendarError && (
           <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            {calendarError}. Holiday information is unavailable, so saving will be blocked until it loads.
+            {calendarError}. The holiday list could not load, so only Sundays are treated as holidays right now. Refresh to retry.
           </div>
         )}
 
         <div className="grid gap-3 sm:grid-cols-2">
           {classes.map((c) => {
-            const day = calendar ? dayStatus(today, c.className, calendar) : null;
+            const day = effectiveCalendar ? dayStatus(today, c.className, effectiveCalendar) : null;
             const holiday = day && !day.isSchoolDay ? day : null;
             return (
             <button
@@ -381,7 +390,7 @@ export default function AttendanceRecordClient() {
 
       {calendarError && (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {calendarError}. Saving is disabled until the school calendar loads. Refresh to retry.
+          {calendarError}. The holiday list could not load: you can still save, but check today is not a school holiday. Refresh to retry.
         </div>
       )}
 
@@ -542,7 +551,7 @@ export default function AttendanceRecordClient() {
         <button
           type="button"
           onClick={() => setConfirmOpen(true)}
-          disabled={saving || !!blockedMessage || calendar === null}
+          disabled={saving || !!blockedMessage || effectiveCalendar === null}
           className="w-full rounded-xl bg-blue-600 py-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60 shadow-sm"
         >
           Submit attendance

@@ -13,6 +13,7 @@ import { getSheetsClient, FEES_SHEET_ID } from "./client";
 import { cachedSheetRead, invalidateSheetCache } from "./read-cache";
 import { withSheetRetry } from "./retry";
 import { withSheetWriteLock } from "./sync-lock";
+import { InputError } from "@/lib/input-error";
 
 export type TabRow<H extends string> = Record<H, string> & { sheetRow: number };
 
@@ -181,8 +182,9 @@ export async function updateKeyedRow(
       );
       const actual = String(cur.data.values?.[0]?.[0] ?? "").trim();
       if (actual !== expectKey.value) {
-        throw new Error(
-          `${title} row ${sheetRow} changed (expected ${expectKey.header}=${expectKey.value}, found "${actual}"). Reload and try again.`
+        throw new InputError(
+          `${title} row ${sheetRow} changed (expected ${expectKey.header}=${expectKey.value}, found "${actual}"). Reload and try again.`,
+          409
         );
       }
     }
