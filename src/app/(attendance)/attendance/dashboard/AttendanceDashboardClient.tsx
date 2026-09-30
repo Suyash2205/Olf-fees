@@ -31,6 +31,7 @@ import {
   summaryFromStudentDays,
 } from "@/lib/attendance/analytics";
 import { portalFetch } from "@/lib/portal-fetch";
+import ChronicAbsencePanel from "./ChronicAbsencePanel";
 
 const PERIODS: { id: AttendancePeriod; label: string }[] = [
   { id: "7d", label: "7 days" },
@@ -274,6 +275,8 @@ export default function AttendanceDashboardClient() {
           <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
         </button>
       </div>
+
+      <ChronicAbsencePanel />
 
       <div className="flex flex-wrap gap-2">
         {PERIODS.map((p) => (
