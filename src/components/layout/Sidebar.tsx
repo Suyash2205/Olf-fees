@@ -22,6 +22,8 @@ import {
   Shield,
   X,
   CalendarCheck,
+  CalendarDays,
+  ClipboardCheck,
 } from "lucide-react";
 import SchoolLogo from "@/components/SchoolLogo";
 
@@ -32,6 +34,7 @@ const GENERAL_ITEMS: NavItem[] = [
   { href: "/admissions", label: "Admissions", icon: UserPlus },
   { href: "/udise", label: "UDISE", icon: Database },
   { href: "/students", label: "Students", icon: Users },
+  { href: "/student-records", label: "Student Records", icon: ClipboardCheck },
 ];
 
 const SCHOOL_FEE_ITEMS: NavItem[] = [
@@ -49,6 +52,7 @@ const EXPENSE_ITEMS: NavItem[] = [
 
 const ATTENDANCE_ITEMS: NavItem[] = [
   { href: "/attendance?from=fees", label: "Attendance", icon: CalendarCheck },
+  { href: "/school-calendar", label: "School Calendar", icon: CalendarDays },
 ];
 
 const ADMIN_ITEMS: NavItem[] = [

@@ -17,6 +17,8 @@ const FEES_PATH_PREFIXES = [
   "/classes",
   "/udise",
   "/admin",
+  "/student-records",
+  "/school-calendar",
 ];
 
 function isFeesPath(pathname: string): boolean {
@@ -100,6 +102,8 @@ export const config = {
     "/classes/:path*",
     "/udise/:path*",
     "/admin/:path*",
+    "/student-records/:path*",
+    "/school-calendar/:path*",
     "/attendance/:path*",
     "/api/:path*",
   ],
