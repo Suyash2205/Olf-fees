@@ -46,6 +46,10 @@ export async function GET(req: NextRequest) {
     }
 
     const report = await buildChronicAbsenceReport(dateIso);
+    // An unrecorded day off (nothing marked by any class) must not re-send yesterday's list.
+    if (!report.markedToday) {
+      return NextResponse.json({ ok: true, skipped: true, reason: "no attendance marked today", date: dateIso });
+    }
     if (report.flagged.length === 0) {
       return NextResponse.json({ ok: true, skipped: true, reason: "nobody flagged", date: dateIso });
     }

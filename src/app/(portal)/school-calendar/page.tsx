@@ -6,8 +6,8 @@ export default function SchoolCalendarPage() {
       <div>
         <h1 className="portal-title">School calendar</h1>
         <p className="text-sm text-slate-500 mt-1">
-          Monday to Friday are school days; Saturday and Sunday are off unless you add a working day. Teachers
-          cannot record attendance on a holiday.
+          Mon–Sat are school days; add a Holiday for a Saturday off. Sunday is off unless you add a Working day.
+          Teachers cannot record attendance on a holiday.
         </p>
       </div>
       <SchoolCalendarClient />

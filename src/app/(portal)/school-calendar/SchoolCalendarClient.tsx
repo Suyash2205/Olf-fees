@@ -129,7 +129,7 @@ export default function SchoolCalendarClient() {
               onChange={(e) => setType(e.target.value as CalendarEntryType)}
             >
               <option value="Holiday">Holiday</option>
-              <option value="Working day">Working day (e.g. a working Saturday)</option>
+              <option value="Working day">Working day (e.g. a working Sunday)</option>
             </select>
           </label>
           <label className="text-xs text-slate-500">
@@ -244,7 +244,7 @@ export default function SchoolCalendarClient() {
               {active.length === 0 && !loading && (
                 <tr>
                   <td colSpan={5} className="px-4 py-10 text-center text-slate-400">
-                    No calendar entries yet. Weekends are off and every weekday is a school day.
+                    No calendar entries yet. Monday to Saturday are school days and Sunday is off.
                   </td>
                 </tr>
               )}

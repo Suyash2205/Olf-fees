@@ -132,7 +132,8 @@ async function main() {
   check("guard: rejects holiday for the listed class", !!blocked && /holiday for 5th Std/.test(blocked), blocked ?? "null");
   check("guard: other class is open", (await guard.attendanceBlockedReason(HOLIDAY_DATE, "6th Std")) === null);
   check("guard: next day is open", (await guard.attendanceBlockedReason(OTHER_DATE, "5th Std")) === null);
-  check("guard: a Saturday is blocked by default", !!(await guard.attendanceBlockedReason("2030-01-12", "5th Std")));
+  check("guard: a Saturday is open by default", (await guard.attendanceBlockedReason("2030-01-12", "5th Std")) === null);
+  check("guard: a Sunday is blocked by default", !!(await guard.attendanceBlockedReason("2030-01-13", "5th Std")));
 
   let cancelled = false;
   try {
@@ -229,9 +230,26 @@ async function main() {
   console.log(`7:30 summary: schoolDay=${school} classesMarked=${summary.byClass.length} unmarked=${unmarked.length}/${summary.unmarkedClasses.length}`);
   check("summary: builder runs", typeof summary.overallRate === "number");
 
+  // absence cron handler: skip reasons (dry run, sends nothing)
+  const { NextRequest } = await import("next/server");
+  const cron = await import("../src/app/api/cron/attendance-absence-alert/route");
+  const h = { authorization: `Bearer ${process.env.CRON_SECRET}` };
+  const call = async (qs: string) => {
+    const r = await cron.GET(new NextRequest(`http://x/api/cron/attendance-absence-alert?dryRun=1${qs}`, { headers: h }));
+    return (await r.json()) as { skipped?: boolean; reason?: string };
+  };
+  if (school && summary.byClass.length === 0) {
+    const r = await call("");
+    check("cron: skips with 'no attendance marked today' when nothing marked", r.skipped === true && r.reason === "no attendance marked today", JSON.stringify(r));
+  } else {
+    console.log("cron: today has marks or is not a school day, skip check not applicable now");
+  }
+  const sun = await call("&date=2026-09-27");
+  check("cron: Sunday is 'not a school day'", sun.reason === "not a school day");
+
   const all = await readAllAttendanceRows();
   const weekend = all.filter((r) => [0, 6].includes(sc.weekdayOf(r.date))).length;
-  console.log(`attendance rows total=${all.length}, dated on Sat/Sun=${weekend} (ignored by default calendar rule)`);
+  console.log(`attendance rows total=${all.length}, dated on Sat/Sun=${weekend} (Sundays ignored by the default calendar rule)`);
 
   // ---------------- cleanup ----------------
   const delCal = await deleteRowsWhere("School Calendar", (r) => r.some((c) => c.includes(MARK)));

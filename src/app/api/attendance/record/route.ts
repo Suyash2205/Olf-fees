@@ -85,7 +85,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "At least one student record is required" }, { status: 400 });
     }
 
-    // Holidays / weekends / calendar overrides: a failed calendar read blocks the save (500).
+    // Holidays / Sundays / calendar overrides: a failed calendar read blocks the save (500).
     const blocked = await attendanceBlockedReason(date, className);
     if (blocked) {
       return NextResponse.json({ error: blocked }, { status: 400 });

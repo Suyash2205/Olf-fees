@@ -1,10 +1,11 @@
 /**
  * School calendar — pure logic (no I/O).
  *
- * Default rule: Monday–Friday are school days; Saturday and Sunday are not.
+ * Default rule: Monday–Saturday are school days; Sunday is not. (The school works many
+ * Saturdays — 8 were marked Jun–Sep 2026 — so a Saturday off is entered as a Holiday.)
  * `School Calendar` tab entries override the default for their classes:
  *   - `Holiday`      → not a school day
- *   - `Working day`  → a school day (e.g. a working Saturday)
+ *   - `Working day`  → a school day (e.g. a working Sunday)
  * Precedence for one date and class:
  *   1. a class-specific entry beats an `All` entry;
  *   2. between entries of the same specificity, the one lower in the sheet
@@ -29,7 +30,7 @@ export interface CalendarEntry {
 
 export interface DayStatus {
   isSchoolDay: boolean;
-  /** Why it is not (or why it is, for an override). "weekend" for the default rule. */
+  /** Why it is not (or why it is, for an override). "default" source for the Sunday rule. */
   source: "default" | "entry";
   title: string;
   type: CalendarEntryType | null;
@@ -63,8 +64,7 @@ export function expandDateRange(startIso: string, endIso: string): string[] {
 }
 
 export function isDefaultSchoolDay(iso: string): boolean {
-  const w = weekdayOf(iso);
-  return w !== 0 && w !== 6;
+  return weekdayOf(iso) !== 0;
 }
 
 function entryAppliesToClass(entry: CalendarEntry, classLabel: string): boolean {
@@ -95,7 +95,7 @@ export function dayStatus(dateIso: string, className: string, entries: CalendarE
     };
   }
   const school = isDefaultSchoolDay(dateIso);
-  return { isSchoolDay: school, source: "default", title: school ? "" : "Weekend", type: null };
+  return { isSchoolDay: school, source: "default", title: school ? "" : "Sunday", type: null };
 }
 
 export function isSchoolDay(dateIso: string, className: string, entries: CalendarEntry[]): boolean {
@@ -156,7 +156,7 @@ export function nonSchoolDayMessage(
   const st = dayStatus(dateIso, className, entries);
   if (st.isSchoolDay) return null;
   const label = canonicalClassLabel(className);
-  const why = st.title || (st.source === "default" ? "Weekend" : "Holiday");
+  const why = st.title || (st.source === "default" ? "Sunday" : "Holiday");
   return `${dateIso} is a holiday for ${label}: ${why}`;
 }
 

@@ -55,6 +55,11 @@ export interface ChronicAbsenceReport {
   countsByClass: { className: string; count: number }[];
 }
 
+/** True when any class has any mark on this date (used to skip the alert on an unrecorded day). */
+export function anyMarkedOn(rows: { date: string }[], dateIso: string): boolean {
+  return rows.some((r) => r.date === dateIso);
+}
+
 export function reasonText(f: { streak: boolean; absentCount: number; windowDays: number }): string[] {
   const out: string[] = [];
   if (f.streak) out.push(`${ABSENCE_STREAK_DAYS} days in a row`);

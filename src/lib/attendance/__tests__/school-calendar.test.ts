@@ -28,15 +28,45 @@ const work = (d: string, classes: CalendarEntry["classes"] = "All", title = "Wor
   startDate: d, endDate: end, type: "Working day", classes, title,
 });
 
-describe("default rule", () => {
-  it("Mon-Fri are school days, Sat and Sun are not", () => {
+describe("default rule (Mon-Sat school, Sunday off)", () => {
+  it("Mon-Sat are school days by default, Sunday is not", () => {
     expect(isSchoolDay(MON, "5th Std", [])).toBe(true);
     expect(isSchoolDay(FRI, "5th Std", [])).toBe(true);
-    expect(isSchoolDay(SAT, "5th Std", [])).toBe(false);
+    expect(isSchoolDay(SAT, "5th Std", [])).toBe(true);
     expect(isSchoolDay(SUN, "5th Std", [])).toBe(false);
   });
-  it("reports weekend as the reason", () => {
-    expect(dayStatus(SAT, "5th Std", [])).toMatchObject({ isSchoolDay: false, source: "default", title: "Weekend" });
+  it("reports Sunday as the reason", () => {
+    expect(dayStatus(SUN, "5th Std", [])).toMatchObject({ isSchoolDay: false, source: "default", title: "Sunday" });
+    expect(dayStatus(SAT, "5th Std", [])).toMatchObject({ isSchoolDay: true, source: "default" });
+  });
+});
+
+describe("Saturday and Sunday overrides", () => {
+  it("a Holiday entry closes a Saturday for all classes", () => {
+    const e = [hol(SAT, "All", "Diwali")];
+    expect(isSchoolDay(SAT, "5th Std", e)).toBe(false);
+    expect(isSchoolDay(SAT, "10th Std", e)).toBe(false);
+    expect(isSchoolDay("2026-10-10", "5th Std", e)).toBe(true); // next Saturday unaffected
+  });
+  it("a class-specific Saturday Holiday closes only that class", () => {
+    const e = [hol(SAT, ["5th Std"], "Sports")];
+    expect(isSchoolDay(SAT, "5th Std", e)).toBe(false);
+    expect(isSchoolDay(SAT, "6th Std", e)).toBe(true);
+  });
+  it("a class-specific Saturday Holiday beats an All Working day", () => {
+    const e = [work(SAT, "All"), hol(SAT, ["5th Std"])];
+    expect(isSchoolDay(SAT, "5th Std", e)).toBe(false);
+    expect(isSchoolDay(SAT, "6th Std", e)).toBe(true);
+  });
+  it("a Working-day entry opens a Sunday, that Sunday only", () => {
+    const e = [work(SUN, "All", "Makeup")];
+    expect(isSchoolDay(SUN, "5th Std", e)).toBe(true);
+    expect(isSchoolDay("2026-10-11", "5th Std", e)).toBe(false);
+  });
+  it("a class-specific Working Sunday opens only that class", () => {
+    const e = [work(SUN, ["10th Std"])];
+    expect(isSchoolDay(SUN, "10th Std", e)).toBe(true);
+    expect(isSchoolDay(SUN, "9th Std", e)).toBe(false);
   });
 });
 
@@ -44,24 +74,23 @@ describe("entries override the default", () => {
   it("a Holiday closes a weekday", () => {
     expect(isSchoolDay(MON, "5th Std", [hol(MON, "All", "Gandhi Jayanti")])).toBe(false);
   });
-  it("a working Saturday opens that Saturday only", () => {
-    const e = [work(SAT)];
-    expect(isSchoolDay(SAT, "5th Std", e)).toBe(true);
-    expect(isSchoolDay(SUN, "5th Std", e)).toBe(false);
-    expect(isSchoolDay("2026-10-10", "5th Std", e)).toBe(false);
+  it("a Working day on an ordinary weekday changes nothing", () => {
+    expect(isSchoolDay(MON, "5th Std", [work(MON)])).toBe(true);
   });
   it("ranges cover every day inclusive", () => {
     const e = [hol("2026-10-05", "All", "Break", "2026-10-09")];
-    expect(["2026-10-04", "2026-10-05", "2026-10-07", "2026-10-09", "2026-10-10"].map((d) => isSchoolDay(d, "1st Std", e)))
-      .toEqual([false, false, false, false, false]); // 4th & 10th are weekend
+    expect(["2026-10-05", "2026-10-07", "2026-10-09"].map((d) => isSchoolDay(d, "1st Std", e))).toEqual([false, false, false]);
+    expect(isSchoolDay("2026-10-04", "1st Std", e)).toBe(false); // Sunday, default
+    expect(isSchoolDay("2026-10-10", "1st Std", e)).toBe(true); // Saturday after the range
     expect(isSchoolDay("2026-10-12", "1st Std", e)).toBe(true);
-    expect(isSchoolDay("2026-10-06", "1st Std", e)).toBe(false);
   });
-  it("a range that spans a weekend leaves other days untouched", () => {
+  it("a Holiday range spanning Sat+Sun+Mon closes the Saturday and Monday, Sunday stays closed", () => {
+    const e = [hol("2026-10-03", "All", "Break", "2026-10-05")];
+    expect([SAT, SUN, NEXT_MON, "2026-10-06"].map((d) => isSchoolDay(d, "1st Std", e))).toEqual([false, false, false, true]);
+  });
+  it("a Working range over Sat+Sun opens both", () => {
     const e = [work("2026-10-03", "All", "Makeup", "2026-10-04")];
-    expect(isSchoolDay("2026-10-03", "1st Std", e)).toBe(true);
-    expect(isSchoolDay("2026-10-04", "1st Std", e)).toBe(true);
-    expect(isSchoolDay("2026-10-05", "1st Std", e)).toBe(true);
+    expect([SAT, SUN, NEXT_MON].map((d) => isSchoolDay(d, "1st Std", e))).toEqual([true, true, true]);
   });
 });
 
@@ -104,32 +133,45 @@ describe("isSchoolDayForAnyClass", () => {
   });
   it("false when every class is closed", () => {
     expect(isSchoolDayForAnyClass(MON, ["5th Std", "6th Std"], [hol(MON)])).toBe(false);
-    expect(isSchoolDayForAnyClass(SAT, ["5th Std"], [])).toBe(false);
+    expect(isSchoolDayForAnyClass(SUN, ["5th Std"], [])).toBe(false);
+    expect(isSchoolDayForAnyClass(SAT, ["5th Std", "6th Std"], [hol(SAT)])).toBe(false);
   });
-  it("Saturday is open if just one class works", () => {
-    expect(isSchoolDayForAnyClass(SAT, ["5th Std", "10th Std"], [work(SAT, ["10th Std"])])).toBe(true);
+  it("Saturday is open by default", () => {
+    expect(isSchoolDayForAnyClass(SAT, ["5th Std"], [])).toBe(true);
+  });
+  it("Sunday is open if just one class works", () => {
+    expect(isSchoolDayForAnyClass(SUN, ["5th Std", "10th Std"], [work(SUN, ["10th Std"])])).toBe(true);
   });
 });
 
 describe("schoolDaysBetween / lastNSchoolDays", () => {
-  it("skips weekends and holidays", () => {
+  it("skips Sundays and holidays but counts Saturdays", () => {
     const e = [hol("2026-09-30")];
     expect(schoolDaysBetween("5th Std", MON, NEXT_MON, e)).toEqual([
-      "2026-09-28", "2026-09-29", "2026-10-01", "2026-10-02", "2026-10-05",
+      "2026-09-28", "2026-09-29", "2026-10-01", "2026-10-02", "2026-10-03", "2026-10-05",
     ]);
+  });
+  it("a Saturday Holiday drops out of the count", () => {
+    expect(schoolDaysBetween("5th Std", FRI, NEXT_MON, [hol(SAT)])).toEqual([FRI, NEXT_MON]);
+  });
+  it("a working Sunday is counted", () => {
+    expect(schoolDaysBetween("5th Std", SAT, NEXT_MON, [work(SUN)])).toEqual([SAT, SUN, NEXT_MON]);
   });
   it("empty for an inverted range", () => {
     expect(schoolDaysBetween("5th Std", NEXT_MON, MON, [])).toEqual([]);
   });
-  it("lastN goes newest first and crosses weekends", () => {
-    expect(lastNSchoolDays("5th Std", NEXT_MON, 3, [])).toEqual(["2026-10-05", "2026-10-02", "2026-10-01"]);
+  it("lastN goes newest first, counts Saturdays and skips Sundays", () => {
+    expect(lastNSchoolDays("5th Std", NEXT_MON, 3, [])).toEqual(["2026-10-05", "2026-10-03", "2026-10-02"]);
   });
   it("lastN includes the end day itself, and skips it when it is a holiday", () => {
     expect(lastNSchoolDays("5th Std", MON, 1, [])).toEqual([MON]);
-    expect(lastNSchoolDays("5th Std", MON, 1, [hol(MON)])).toEqual(["2026-09-25"]);
+    expect(lastNSchoolDays("5th Std", MON, 1, [hol(MON)])).toEqual(["2026-09-26"]); // Saturday before
   });
-  it("lastN honours a working Saturday", () => {
-    expect(lastNSchoolDays("5th Std", NEXT_MON, 2, [work(SAT)])).toEqual(["2026-10-05", "2026-10-03"]);
+  it("lastN skips a Saturday Holiday", () => {
+    expect(lastNSchoolDays("5th Std", NEXT_MON, 2, [hol(SAT)])).toEqual(["2026-10-05", "2026-10-02"]);
+  });
+  it("lastN honours a working Sunday", () => {
+    expect(lastNSchoolDays("5th Std", NEXT_MON, 2, [work(SUN)])).toEqual(["2026-10-05", "2026-10-04"]);
   });
   it("lastN returns fewer when the lookback cap is hit and never loops forever", () => {
     const forever = [hol("2020-01-01", "All", "x", "2030-12-31")];
@@ -159,8 +201,11 @@ describe("nonSchoolDayMessage", () => {
       "2026-09-28 is a holiday for 5th Std: Gandhi Jayanti"
     );
   });
-  it("uses Weekend for the default rule", () => {
-    expect(nonSchoolDayMessage(SUN, "PG", [])).toBe("2026-10-04 is a holiday for P.G.: Weekend");
+  it("uses Sunday for the default rule", () => {
+    expect(nonSchoolDayMessage(SUN, "PG", [])).toBe("2026-10-04 is a holiday for P.G.: Sunday");
+  });
+  it("Saturday is open by default (null)", () => {
+    expect(nonSchoolDayMessage(SAT, "PG", [])).toBeNull();
   });
   it("null on a school day", () => {
     expect(nonSchoolDayMessage(MON, "5th Std", [])).toBeNull();
@@ -228,8 +273,21 @@ describe("filterToSchoolDays", () => {
     const rows = [
       { date: MON, className: "5th Std", id: 1 },
       { date: MON, className: "6th Std", id: 2 },
-      { date: SAT, className: "5th Std", id: 3 },
     ];
     expect(filterToSchoolDays(rows, [hol(MON, ["5th Std"])]).map((r) => r.id)).toEqual([2]);
+  });
+  it("keeps Saturday rows and drops Sunday rows", () => {
+    const rows = [
+      { date: SAT, className: "5th Std", id: 1 },
+      { date: SUN, className: "5th Std", id: 2 },
+    ];
+    expect(filterToSchoolDays(rows, []).map((r) => r.id)).toEqual([1]);
+  });
+  it("drops a Saturday with a Holiday and keeps a Sunday with a Working day", () => {
+    const rows = [
+      { date: SAT, className: "5th Std", id: 1 },
+      { date: SUN, className: "5th Std", id: 2 },
+    ];
+    expect(filterToSchoolDays(rows, [hol(SAT), work(SUN)]).map((r) => r.id)).toEqual([2]);
   });
 });

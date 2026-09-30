@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeChronicAbsence } from "../chronic-absence";
+import { anyMarkedOn, computeChronicAbsence } from "../chronic-absence";
 import type { CalendarEntry } from "../school-calendar";
 import type { AttendanceRow } from "../types";
 
@@ -109,22 +109,41 @@ describe("unmarked days and holidays", () => {
     // 10-02 A, (10-01 A but holiday), 09-30 P ... -> only 1 absence in window
     expect(run(rows2, roster([["1", "Asha", "5th Std"]]), hols).flagged).toHaveLength(0);
   });
-  it("marks on a weekend are ignored by default", () => {
+  it("marks on a Sunday are ignored by default", () => {
     const rows = [
       ...rowsFor("5th Std", "1", "Asha", [P, P, P]),
-      mk("5th Std", "1", "Asha", "2026-10-03", false), // Saturday
       mk("5th Std", "1", "Asha", "2026-10-04", false), // Sunday
+      mk("5th Std", "1", "Asha", "2026-10-11", false), // Sunday
     ];
-    expect(run(rows, roster([["1", "Asha", "5th Std"]]), [], "2026-10-04").flagged).toHaveLength(0);
+    expect(run(rows, roster([["1", "Asha", "5th Std"]]), [], "2026-10-11").flagged).toHaveLength(0);
   });
-  it("a working Saturday is part of the window", () => {
-    const sat: CalendarEntry = { startDate: "2026-10-03", endDate: "2026-10-03", type: "Working day", classes: "All", title: "W" };
+  it("a Saturday is part of the window by default", () => {
+    const rows = [
+      mk("5th Std", "1", "Asha", "2026-10-03", false), // Saturday
+      mk("5th Std", "1", "Asha", DAYS[0], false),
+      mk("5th Std", "1", "Asha", DAYS[1], false),
+    ];
+    const r = run(rows, roster([["1", "Asha", "5th Std"]]), [], "2026-10-03");
+    expect(r.flagged).toHaveLength(1);
+    expect(r.flagged[0].windowDays).toBe(3);
+  });
+  it("a Saturday Holiday is excluded from the window", () => {
+    const sat: CalendarEntry = { startDate: "2026-10-03", endDate: "2026-10-03", type: "Holiday", classes: "All", title: "H" };
     const rows = [
       mk("5th Std", "1", "Asha", "2026-10-03", false),
       mk("5th Std", "1", "Asha", DAYS[0], false),
       mk("5th Std", "1", "Asha", DAYS[1], false),
     ];
-    expect(run(rows, roster([["1", "Asha", "5th Std"]]), [sat], "2026-10-03").flagged).toHaveLength(1);
+    expect(run(rows, roster([["1", "Asha", "5th Std"]]), [sat], "2026-10-03").flagged).toHaveLength(0); // only 2 school days marked
+  });
+  it("a working Sunday is part of the window", () => {
+    const sun: CalendarEntry = { startDate: "2026-10-04", endDate: "2026-10-04", type: "Working day", classes: "All", title: "W" };
+    const rows = [
+      mk("5th Std", "1", "Asha", "2026-10-04", false),
+      mk("5th Std", "1", "Asha", DAYS[0], false),
+      mk("5th Std", "1", "Asha", DAYS[1], false),
+    ];
+    expect(run(rows, roster([["1", "Asha", "5th Std"]]), [sun], "2026-10-04").flagged).toHaveLength(1);
   });
   it("marks after today are ignored", () => {
     const rows = [mk("5th Std", "1", "Asha", "2026-10-05", false), ...rowsFor("5th Std", "1", "Asha", [P, P, P])];
@@ -210,12 +229,31 @@ describe("roster and identity", () => {
     expect(r.flagged.map((f) => f.studentName)).toEqual(["Amy", "Bob", "Zed"]);
     expect(r.byClass.map((g) => g.className)).toEqual(["1st Std", "10th Std"]);
   });
-  it("last present date ignores holiday/weekend marks and is the most recent present day", () => {
+  it("last present date ignores holiday/Sunday marks and is the most recent present day", () => {
     const rows = [
       ...rowsFor("5th Std", "1", "Asha", [A, A, A, P, P]),
-      mk("5th Std", "1", "Asha", "2026-10-03", true), // Saturday, ignored
+      mk("5th Std", "1", "Asha", "2026-10-04", true), // Sunday, ignored
     ];
-    const r = run(rows, roster([["1", "Asha", "5th Std"]]), [], "2026-10-03");
+    const r = run(rows, roster([["1", "Asha", "5th Std"]]), [], "2026-10-04");
     expect(r.flagged[0].lastPresentDate).toBe(DAYS[3]);
+  });
+  it("a present Saturday counts as the last present date", () => {
+    const rows = [
+      ...rowsFor("5th Std", "1", "Asha", [A, A, A, P, P]),
+      mk("5th Std", "1", "Asha", "2026-10-03", true),
+    ];
+    // Saturday present is the newest marked day, so the 3 most recent are P, A, A -> no streak
+    expect(run(rows, roster([["1", "Asha", "5th Std"]]), [], "2026-10-03").flagged).toHaveLength(0);
+  });
+});
+
+describe("anyMarkedOn (drives the 'no attendance marked today' skip)", () => {
+  const rows = rowsFor("5th Std", "1", "Asha", [P, P]);
+  it("true when any class has a mark that day", () => {
+    expect(anyMarkedOn(rows, DAYS[0])).toBe(true);
+  });
+  it("false when nothing is marked that day, so yesterday's list is not re-sent", () => {
+    expect(anyMarkedOn(rows, "2026-10-03")).toBe(false);
+    expect(anyMarkedOn([], DAYS[0])).toBe(false);
   });
 });
