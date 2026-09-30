@@ -3,6 +3,7 @@ import { requireAttendanceActor, requireAttendanceApiAuth } from "@/lib/attendan
 import { recordAttendanceAudit } from "@/lib/attendance/audit";
 import type { AttendanceEntry, AttendanceStatus } from "@/lib/attendance/types";
 import { todayISO } from "@/lib/attendance/types";
+import { attendanceBlockedReason } from "@/lib/attendance/calendar-guard";
 import { isKnownAttendanceClass } from "@/lib/attendance/students";
 import { isPortalActor } from "@/lib/portal-auth";
 import { canonicalClassLabel } from "@/lib/fees/structure";
@@ -82,6 +83,12 @@ export async function POST(req: NextRequest) {
     }
     if (records.length === 0) {
       return NextResponse.json({ error: "At least one student record is required" }, { status: 400 });
+    }
+
+    // Holidays / weekends / calendar overrides: a failed calendar read blocks the save (500).
+    const blocked = await attendanceBlockedReason(date, className);
+    if (blocked) {
+      return NextResponse.json({ error: blocked }, { status: 400 });
     }
 
     const normalizedRecords = records.map((r) => ({
