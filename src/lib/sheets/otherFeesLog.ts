@@ -2,8 +2,10 @@ import {
   DEFAULT_OTHER_FEE_TYPES,
   normalizeFeeTypeName,
 } from "@/lib/other-fee-types";
+import { parseReceiptCell, receiptCellValue } from "@/lib/fees/receipt";
 import { normalizePaymentMode, paymentModeLabel, type PaymentMode } from "@/lib/payment-mode";
 import { getSheetsClient, FEES_SHEET_ID } from "./client";
+import { columnLetter } from "./keyed-tab";
 import {
   amountsMatch,
   normalizeSheetDate,
@@ -35,11 +37,25 @@ export interface OtherFeeEntry {
   amount: number;
   paymentMode: PaymentMode;
   notes: string;
+  /** Optional receipt number (far-right "Receipt No" column). */
+  receiptNo?: string;
 }
 
 export type OtherFeeEntryInput = Omit<OtherFeeEntry, "id">;
 
+const RECEIPT_HEADER = "Receipt No";
+
 let sheetsEnsured = false;
+/**
+ * 0-based column of "Receipt No". The school's own columns I–K (Online / Cash / Total formulas)
+ * sit between Notes and the receipt, so it is found by header name and added after the last
+ * existing header (L on the current sheet). Columns I–K are never written.
+ */
+let receiptCol = 8;
+
+function receiptColLetter(): string {
+  return columnLetter(receiptCol);
+}
 
 async function getSheetId(title: string): Promise<number> {
   const sheets = getSheetsClient();
@@ -138,14 +154,30 @@ async function ensureOtherFeesSheets(): Promise<void> {
     spreadsheetId: FEES_SHEET_ID,
     range: `${OTHER_FEES_SHEET}!A1:1`,
   });
-  if (logHeader.data.values?.[0]?.[0] !== HEADERS[0]) {
+  let logHeaders = (logHeader.data.values?.[0] ?? []).map((h) => String(h ?? "").trim());
+  if (logHeaders[0] !== HEADERS[0]) {
     await sheets.spreadsheets.values.update({
       spreadsheetId: FEES_SHEET_ID,
       range: `${OTHER_FEES_SHEET}!A1:H1`,
       valueInputOption: "USER_ENTERED",
       requestBody: { values: [[...HEADERS]] },
     });
+    logHeaders = [...HEADERS];
   }
+  // "Receipt No": located by name; if absent, ONE header cell is added after the last header.
+  let receiptIdx = logHeaders.indexOf(RECEIPT_HEADER);
+  if (receiptIdx < 0) {
+    let last = logHeaders.length - 1;
+    while (last >= 0 && !logHeaders[last]) last--;
+    receiptIdx = last + 1;
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: FEES_SHEET_ID,
+      range: `${OTHER_FEES_SHEET}!${columnLetter(receiptIdx)}1`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [[RECEIPT_HEADER]] },
+    });
+  }
+  receiptCol = receiptIdx;
 
   const typesHeader = await sheets.spreadsheets.values.get({
     spreadsheetId: FEES_SHEET_ID,
@@ -221,7 +253,7 @@ async function readOtherFeeRow(row: number): Promise<string[] | undefined> {
   const sheets = getSheetsClient();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: FEES_SHEET_ID,
-    range: `${OTHER_FEES_SHEET}!A${row}:H${row}`,
+    range: `${OTHER_FEES_SHEET}!A${row}:${receiptColLetter()}${row}`,
   });
   return res.data.values?.[0];
 }
@@ -236,7 +268,8 @@ function otherFeeRowMatches(entry: OtherFeeEntryInput, row: string[]): boolean {
     normalizeFeeTypeName(row[4] ?? "") === normalizeFeeTypeName(entry.feeType) &&
     amountsMatch(parseSheetAmount(row[5]), entry.amount) &&
     rowMode === mode &&
-    (row[7]?.trim() ?? "") === entry.notes.trim()
+    (row[7]?.trim() ?? "") === entry.notes.trim() &&
+    (entry.receiptNo ?? "") === (parseReceiptCell(row[receiptCol]) ?? "")
   );
 }
 
@@ -251,7 +284,7 @@ export async function getAllOtherFeeEntries(): Promise<OtherFeeEntry[]> {
   const sheets = getSheetsClient();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: FEES_SHEET_ID,
-    range: `${OTHER_FEES_SHEET}!A:H`,
+    range: `${OTHER_FEES_SHEET}!A:${receiptColLetter()}`,
   });
   const rows = (res.data.values ?? []).slice(1);
   return rows
@@ -265,6 +298,7 @@ export async function getAllOtherFeeEntries(): Promise<OtherFeeEntry[]> {
       amount: Number(row[5]) || 0,
       paymentMode: parsePaymentModeCell(row[6]),
       notes: row[7] ?? "",
+      receiptNo: parseReceiptCell(row[receiptCol]),
     }))
     .filter((e) => e.date && e.studentName && e.feeType && e.amount > 0);
 }
@@ -280,31 +314,46 @@ export async function compactOtherFeesLog(): Promise<number> {
       ?.gridProperties?.rowCount ?? entries.length + 2;
 
   if (gridRows > 1) {
-    await sheets.spreadsheets.values.clear({
+    // Clear only the portal-owned columns (A:H and Receipt No). I–K hold the school's formulas.
+    await sheets.spreadsheets.values.batchClear({
       spreadsheetId: FEES_SHEET_ID,
-      range: `${OTHER_FEES_SHEET}!A2:H${gridRows}`,
+      requestBody: {
+        ranges: [
+          `${OTHER_FEES_SHEET}!A2:H${gridRows}`,
+          `${OTHER_FEES_SHEET}!${receiptColLetter()}2:${receiptColLetter()}${gridRows}`,
+        ],
+      },
     });
   }
 
   if (entries.length === 0) return 0;
 
-  await sheets.spreadsheets.values.update({
+  // The receipt travels with its row: rewritten together with A:H in the same call.
+  await sheets.spreadsheets.values.batchUpdate({
     spreadsheetId: FEES_SHEET_ID,
-    range: `${OTHER_FEES_SHEET}!A2:H${entries.length + 1}`,
-    valueInputOption: "USER_ENTERED",
     requestBody: {
-      values: entries.map((e) =>
-        entryToRowValues({
-          date: e.date,
-          studentName: e.studentName,
-          className: e.className,
-          srNo: e.srNo,
-          feeType: e.feeType,
-          amount: e.amount,
-          paymentMode: e.paymentMode,
-          notes: e.notes,
-        })
-      ),
+      valueInputOption: "USER_ENTERED",
+      data: [
+        {
+          range: `${OTHER_FEES_SHEET}!A2:H${entries.length + 1}`,
+          values: entries.map((e) =>
+            entryToRowValues({
+              date: e.date,
+              studentName: e.studentName,
+              className: e.className,
+              srNo: e.srNo,
+              feeType: e.feeType,
+              amount: e.amount,
+              paymentMode: e.paymentMode,
+              notes: e.notes,
+            })
+          ),
+        },
+        {
+          range: `${OTHER_FEES_SHEET}!${receiptColLetter()}2:${receiptColLetter()}${entries.length + 1}`,
+          values: entries.map((e) => [receiptCellValue(e.receiptNo)]),
+        },
+      ],
     },
   });
 
@@ -316,28 +365,38 @@ export async function getOtherFeeEntriesForStudent(srNo: string): Promise<OtherF
   return all.filter((e) => e.srNo === srNo);
 }
 
-export async function appendOtherFeeEntry(entry: OtherFeeEntryInput): Promise<void> {
+/** Append one row; returns its sheet row number (as the entry id) so callers can undo it. */
+export async function appendOtherFeeEntry(entry: OtherFeeEntryInput): Promise<string> {
   await ensureOtherFeesSheets();
   await addOtherFeeType(entry.feeType);
 
   const nextRow = await nextOtherFeeDataRow();
   const sheets = getSheetsClient();
-  await sheets.spreadsheets.values.update({
+  // A:H and the Receipt No cell only; I–K (school formulas) are not touched.
+  await sheets.spreadsheets.values.batchUpdate({
     spreadsheetId: FEES_SHEET_ID,
-    range: `${OTHER_FEES_SHEET}!A${nextRow}:H${nextRow}`,
-    valueInputOption: "USER_ENTERED",
-    requestBody: { values: [entryToRowValues(entry)] },
+    requestBody: {
+      valueInputOption: "USER_ENTERED",
+      data: [
+        { range: `${OTHER_FEES_SHEET}!A${nextRow}:H${nextRow}`, values: [entryToRowValues(entry)] },
+        {
+          range: `${OTHER_FEES_SHEET}!${receiptColLetter()}${nextRow}`,
+          values: [[receiptCellValue(entry.receiptNo)]],
+        },
+      ],
+    },
   });
 
   await verifySheetWrite(async () => {
     const row = await readOtherFeeRow(nextRow);
     return row != null && otherFeeRowMatches(entry, row);
   }, "Other fee entry");
+  return String(nextRow);
 }
 
 export async function updateOtherFeeEntry(
   rowId: string,
-  update: Partial<Pick<OtherFeeEntryInput, "amount" | "paymentMode" | "feeType" | "notes">>
+  update: Partial<Pick<OtherFeeEntryInput, "amount" | "paymentMode" | "feeType" | "notes" | "receiptNo">>
 ): Promise<void> {
   await ensureOtherFeesSheets();
   const sheets = getSheetsClient();
@@ -361,6 +420,12 @@ export async function updateOtherFeeEntry(
   }
   if (update.notes !== undefined) {
     data.push({ range: `${OTHER_FEES_SHEET}!H${rowId}`, values: [[update.notes.trim()]] });
+  }
+  if (update.receiptNo !== undefined) {
+    data.push({
+      range: `${OTHER_FEES_SHEET}!${receiptColLetter()}${rowId}`,
+      values: [[receiptCellValue(update.receiptNo.trim() || undefined)]],
+    });
   }
 
   if (data.length === 0) return;
@@ -386,6 +451,12 @@ export async function updateOtherFeeEntry(
       if (actual !== expected) return false;
     }
     if (update.notes !== undefined && (row[7]?.trim() ?? "") !== update.notes.trim()) {
+      return false;
+    }
+    if (
+      update.receiptNo !== undefined &&
+      (parseReceiptCell(row[receiptCol]) ?? "") !== update.receiptNo.trim()
+    ) {
       return false;
     }
     return true;
@@ -436,6 +507,15 @@ export async function deleteOtherFeeEntry(
     feeType: rowBefore?.[4] ?? "",
   };
 
+  const matches = (e: OtherFeeEntry) =>
+    e.srNo === snapshot.srNo &&
+    e.date === snapshot.date &&
+    e.feeType === snapshot.feeType &&
+    amountsMatch(e.amount, snapshot.amount);
+  const canVerify = Boolean(snapshot.srNo && snapshot.date && snapshot.feeType);
+  // Count identical rows: split payments can leave two same-amount rows (see deleteDailyEntry).
+  const countBefore = canVerify ? (await getAllOtherFeeEntries()).filter(matches).length : 0;
+
   const sheets = getSheetsClient();
   await sheets.spreadsheets.batchUpdate({
     spreadsheetId: FEES_SHEET_ID,
@@ -450,16 +530,10 @@ export async function deleteOtherFeeEntry(
     },
   });
 
-  if (snapshot.srNo && snapshot.date && snapshot.feeType) {
-    await verifySheetWrite(async () => {
-      const entries = await getAllOtherFeeEntries();
-      return !entries.some(
-        (e) =>
-          e.srNo === snapshot.srNo &&
-          e.date === snapshot.date &&
-          e.feeType === snapshot.feeType &&
-          amountsMatch(e.amount, snapshot.amount)
-      );
-    }, "Other fee entry delete");
+  if (canVerify) {
+    await verifySheetWrite(
+      async () => (await getAllOtherFeeEntries()).filter(matches).length < countBefore,
+      "Other fee entry delete"
+    );
   }
 }

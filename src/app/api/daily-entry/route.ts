@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { recordAudit } from "@/lib/audit";
+import { normalizeReceiptNo } from "@/lib/fees/receipt";
+import { buildSplitParts, saveAllOrNothing } from "@/lib/fees/split-payment";
 import { normalizePaymentMode } from "@/lib/payment-mode";
 import { getPortalActor, isPortalActor, requirePortalActor } from "@/lib/portal-auth";
 import { revalidateTag } from "next/cache";
@@ -12,6 +14,7 @@ import {
   deleteDailyEntry,
 } from "@/lib/sheets/dailyLog";
 import { getFeeByName, getFeeBySrNo, recalculateStudentFees, syncFeeRowAmounts } from "@/lib/sheets/fees";
+import type { FeeRecord } from "@/lib/sheets/fees";
 import { feeMonthForEntry, reconcileStudentPayments } from "@/lib/sheets/payment-sync";
 
 function invalidateFees() {
@@ -79,52 +82,136 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const studentName: string = body.studentName?.trim();
+    const srNoInput: string = String(body.srNo ?? "").trim();
     const date: string = body.date?.trim();
-    const amount = Number(body.amount);
+    const isSplit = body.paymentMode === "split";
+    const amount = isSplit
+      ? Number(body.cashAmount) + Number(body.onlineAmount)
+      : Number(body.amount);
 
-    if (!studentName || !date || !amount || amount <= 0) {
+    if ((!studentName && !srNoInput) || !date || !amount || amount <= 0) {
       return NextResponse.json(
         { error: "studentName, date, and amount > 0 are required" },
         { status: 400 }
       );
     }
 
-    const feeRecord = await getFeeByName(studentName);
+    let receiptNo: string | undefined;
+    try {
+      receiptNo = normalizeReceiptNo(body.receiptNo);
+    } catch (e) {
+      return NextResponse.json({ error: (e as Error).message }, { status: 400 });
+    }
+
+    // Prefer Sr No (unique) over name (duplicates exist).
+    const feeRecord: FeeRecord | null = srNoInput
+      ? await getFeeBySrNo(srNoInput)
+      : await getFeeByName(studentName);
     if (!feeRecord) {
       return NextResponse.json(
-        { error: `Student "${studentName}" not found in fee records` },
+        { error: `Student "${studentName || srNoInput}" not found in fee records` },
         { status: 404 }
       );
     }
 
     const feeMonth = new Date(date + "T00:00:00").getMonth() + 1;
-    const paymentMode = normalizePaymentMode(body.paymentMode);
     const comment =
       typeof body.comment === "string" ? body.comment.trim() : undefined;
 
-    await appendDailyEntry({
+    let parts: { paymentMode: "cash" | "online"; amount: number; comment?: string }[];
+    if (isSplit) {
+      try {
+        parts = buildSplitParts(
+          Number(body.cashAmount),
+          Number(body.onlineAmount),
+          comment
+        ).map((p) => ({ paymentMode: p.paymentMode, amount: p.amount, comment: p.note }));
+      } catch (e) {
+        return NextResponse.json({ error: (e as Error).message }, { status: 400 });
+      }
+    } else {
+      parts = [
+        {
+          paymentMode: normalizePaymentMode(body.paymentMode),
+          amount,
+          ...(comment ? { comment } : {}),
+        },
+      ];
+    }
+
+    const toInput = (p: (typeof parts)[number]) => ({
       date,
-      studentName,
+      studentName: feeRecord.studentName,
       className: feeRecord.className,
       srNo: feeRecord.srNo,
-      amount,
+      amount: p.amount,
       feeMonth,
-      paymentMode,
-      ...(comment ? { comment } : {}),
+      paymentMode: p.paymentMode,
+      ...(p.comment ? { comment: p.comment } : {}),
+      ...(receiptNo ? { receiptNo } : {}),
     });
 
-    await rebuildFeeRowFromLog(feeRecord);
+    try {
+      // All-or-nothing: if the 2nd row of a split fails, the 1st is deleted again.
+      await saveAllOrNothing(
+        parts,
+        (p) => appendDailyEntry(toInput(p)),
+        (rowId, p) =>
+          deleteDailyEntry(rowId, {
+            srNo: feeRecord.srNo,
+            date,
+            amount: p.amount,
+            feeMonth,
+          })
+      );
+    } catch (e) {
+      invalidateFees();
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      return NextResponse.json(
+        {
+          error: isSplit
+            ? `${msg} No part of the split payment was kept — check the payment history before retrying.`
+            : msg,
+        },
+        { status: 500 }
+      );
+    }
+
+    try {
+      await rebuildFeeRowFromLog(feeRecord);
+    } catch (e) {
+      invalidateFees();
+      console.error("daily entry rebuild error:", e);
+      return NextResponse.json(
+        {
+          error:
+            "The payment was saved to the log, but Fee details could not be updated. Do not enter it again — open the student to re-sync.",
+        },
+        { status: 500 }
+      );
+    }
 
     invalidateFees();
     await recordAudit(req, {
       action: "create",
       resource: "payments",
       resourceId: feeRecord.srNo,
-      summary: `Payment ₹${amount} (${paymentMode}) for ${studentName} on ${date}`,
-      details: { date, amount, feeMonth, paymentMode, className: feeRecord.className, comment },
+      summary: isSplit
+        ? `Split payment ₹${amount} (cash ₹${parts[0].amount} + online ₹${parts[1].amount}) for ${feeRecord.studentName} on ${date}`
+        : `Payment ₹${amount} (${parts[0].paymentMode}) for ${feeRecord.studentName} on ${date}`,
+      details: {
+        date,
+        amount,
+        feeMonth,
+        paymentMode: isSplit ? "split" : parts[0].paymentMode,
+        parts: parts.map((p) => ({ paymentMode: p.paymentMode, amount: p.amount })),
+        className: feeRecord.className,
+        comment,
+        receiptNo,
+      },
       actor,
     });
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, receiptNo: receiptNo ?? null, rows: parts.length });
   } catch (err) {
     console.error("daily entry error:", err);
     return NextResponse.json(
@@ -217,8 +304,18 @@ export async function PATCH(req: NextRequest) {
           : ""
         : undefined;
 
+    let receiptNo: string | undefined;
+    if (body.receiptNo !== undefined) {
+      try {
+        receiptNo = normalizeReceiptNo(body.receiptNo) ?? "";
+      } catch (e) {
+        return NextResponse.json({ error: (e as Error).message }, { status: 400 });
+      }
+    }
+
     await updateDailyEntry(entryId, {
       amount: newAmount,
+      ...(receiptNo !== undefined ? { receiptNo } : {}),
       ...(newPaymentMode !== undefined ? { paymentMode: newPaymentMode } : {}),
       ...(comment !== undefined ? { comment } : {}),
     });
