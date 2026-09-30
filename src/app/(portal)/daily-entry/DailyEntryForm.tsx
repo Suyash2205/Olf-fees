@@ -30,6 +30,15 @@ import {
   paymentModeLabel,
   type PaymentMode,
 } from "@/lib/payment-mode";
+import {
+  PaymentModePicker,
+  ReceiptField,
+  SplitAmountInputs,
+  paymentBody,
+  RECEIPT_MAX,
+  type PaymentModeChoice,
+} from "@/components/fees/PaymentFields";
+import ReceiptSearch from "@/components/fees/ReceiptSearch";
 
 const SCHOOL_FEE_TYPE = "School Fees";
 
@@ -145,7 +154,10 @@ export default function DailyEntryForm() {
   const [date, setDate] = useState(todayISO());
   const [amount, setAmount] = useState("");
   const [notes, setNotes] = useState("");
-  const [paymentMode, setPaymentMode] = useState<PaymentMode>("cash");
+  const [paymentMode, setPaymentMode] = useState<PaymentModeChoice>("cash");
+  const [cashAmount, setCashAmount] = useState("");
+  const [onlineAmount, setOnlineAmount] = useState("");
+  const [receiptNo, setReceiptNo] = useState("");
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -160,6 +172,7 @@ export default function DailyEntryForm() {
   const [editNotes, setEditNotes] = useState("");
   const [editPaymentMode, setEditPaymentMode] = useState<PaymentMode>("cash");
   const [editFeeType, setEditFeeType] = useState("");
+  const [editReceipt, setEditReceipt] = useState("");
   const [editSaving, setEditSaving] = useState(false);
 
   const [confirmDeleteKey, setConfirmDeleteKey] = useState<string | null>(null);
@@ -330,8 +343,13 @@ export default function DailyEntryForm() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!selectedFee || !date || !amount || Number(amount) <= 0) {
+    if (!selectedFee || !date) {
       setError("Select a student and enter a valid amount.");
+      return;
+    }
+    const pay = paymentBody(paymentMode, amount, cashAmount, onlineAmount);
+    if ("error" in pay) {
+      setError(pay.error);
       return;
     }
     if (!isSchoolFee && feeType.toLowerCase() === "other" && !notes.trim()) {
@@ -343,39 +361,36 @@ export default function DailyEntryForm() {
     setError(null);
     setSuccess(false);
     try {
+      const common = {
+        srNo: selectedFee.srNo,
+        studentName: selectedFee.studentName,
+        date,
+        receiptNo: receiptNo.trim(),
+        ...pay.fields,
+      };
       if (isSchoolFee) {
         const res = await portalFetch("/api/daily-entry", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            studentName: selectedFee.studentName,
-            date,
-            amount: Number(amount),
-            paymentMode,
-            comment: notes.trim(),
-          }),
+          body: JSON.stringify({ ...common, comment: notes.trim() }),
         });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error ?? "Failed");
       } else {
         const res = await portalFetch("/api/other-fees", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            studentName: selectedFee.studentName,
-            date,
-            feeType,
-            amount: Number(amount),
-            paymentMode,
-            notes: notes.trim(),
-          }),
+          body: JSON.stringify({ ...common, feeType, notes: notes.trim() }),
         });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error ?? "Failed");
       }
 
       setSuccess(true);
       setAmount("");
+      setCashAmount("");
+      setOnlineAmount("");
+      setReceiptNo("");
       setNotes("");
       setTimeout(() => setSuccess(false), 3000);
       await Promise.all([
@@ -455,9 +470,13 @@ export default function DailyEntryForm() {
             srNo: item.srNo,
             paymentMode: editPaymentMode,
             comment: editNotes.trim(),
+            receiptNo: editReceipt.trim(),
           }),
         });
-        if (!res.ok) throw new Error("Update failed");
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error ?? "Update failed");
+        }
         await refreshStudentFee(item.studentName);
       } else {
         const res = await portalFetch("/api/other-fees", {
@@ -469,14 +488,19 @@ export default function DailyEntryForm() {
             paymentMode: editPaymentMode,
             feeType: editFeeType,
             notes: editNotes.trim(),
+            receiptNo: editReceipt.trim(),
           }),
         });
-        if (!res.ok) throw new Error("Update failed");
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error ?? "Update failed");
+        }
       }
       setEditingKey(null);
       await refreshAllEntries(item.srNo);
-    } catch {
-      /* stay in edit */
+    } catch (err) {
+      // stay in edit, and say why
+      setError(err instanceof Error ? err.message : "Update failed");
     } finally {
       setEditSaving(false);
     }
@@ -486,6 +510,7 @@ export default function DailyEntryForm() {
     setEditingKey(historyKey(item.kind, item.id));
     setEditAmount(String(item.amount));
     setEditPaymentMode(item.paymentMode ?? "cash");
+    setEditReceipt(item.receiptNo ?? "");
     setConfirmDeleteKey(null);
     if (item.kind === "school") {
       setEditNotes(item.comment ?? "");
@@ -519,6 +544,8 @@ export default function DailyEntryForm() {
   const hasHistory = schoolEntries.length + otherEntries.length > 0;
 
   return (
+    <div className="space-y-6">
+    <ReceiptSearch />
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       <div className="space-y-5">
         <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
@@ -663,12 +690,22 @@ export default function DailyEntryForm() {
             />
           </div>
 
+          <ReceiptField value={receiptNo} onChange={setReceiptNo} />
+
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">
               <IndianRupee className="inline w-3.5 h-3.5 mr-1 text-slate-400" />
-              Amount (₹)
+              {paymentMode === "split" ? "Amounts (₹)" : "Amount (₹)"}
             </label>
-            {isSchoolFee && selectedFee && quarterAmounts && (
+            {paymentMode === "split" && (
+              <SplitAmountInputs
+                cash={cashAmount}
+                online={onlineAmount}
+                onCash={setCashAmount}
+                onOnline={setOnlineAmount}
+              />
+            )}
+            {paymentMode !== "split" && isSchoolFee && selectedFee && quarterAmounts && (
               <div className="flex flex-wrap gap-1.5 mb-2">
                 {(["Q1", "Q2", "Q3", "Q4"] as const).map((label, i) => (
                   <button
@@ -691,6 +728,7 @@ export default function DailyEntryForm() {
                 )}
               </div>
             )}
+            {paymentMode !== "split" && (
             <input
               type="number"
               value={amount}
@@ -699,7 +737,8 @@ export default function DailyEntryForm() {
               min={1}
               className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
-            {isSchoolFee && (
+            )}
+            {paymentMode !== "split" && isSchoolFee && (
               <p className="text-xs text-slate-400 mt-1">
                 Use quick-fill for a full quarter, or enter a partial amount.
               </p>
@@ -730,24 +769,7 @@ export default function DailyEntryForm() {
 
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2">Payment mode</label>
-            <div className="grid grid-cols-2 gap-2">
-              {PAYMENT_MODES.map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() => setPaymentMode(mode)}
-                  className={`px-3 py-2.5 text-sm font-medium rounded-lg border transition-colors ${
-                    paymentMode === mode
-                      ? mode === "cash"
-                        ? "bg-emerald-600 text-white border-emerald-600"
-                        : "bg-violet-600 text-white border-violet-600"
-                      : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"
-                  }`}
-                >
-                  {paymentModeLabel(mode)}
-                </button>
-              ))}
-            </div>
+            <PaymentModePicker value={paymentMode} onChange={setPaymentMode} />
           </div>
 
           {error && (
@@ -867,6 +889,11 @@ export default function DailyEntryForm() {
                         </span>
                       )}
                     </div>
+                    {entry.receiptNo && (
+                      <p className="text-[11px] font-medium text-amber-800 mt-1">
+                        Receipt No <span className="font-mono">{entry.receiptNo}</span>
+                      </p>
+                    )}
                     {noteText && (
                       <p className="text-xs text-slate-500 mt-1 line-clamp-2">{noteText}</p>
                     )}
@@ -916,6 +943,14 @@ export default function DailyEntryForm() {
                           </button>
                         ))}
                       </div>
+                      <input
+                        type="text"
+                        value={editReceipt}
+                        maxLength={RECEIPT_MAX}
+                        onChange={(e) => setEditReceipt(e.target.value)}
+                        placeholder="Receipt No"
+                        className="w-full sm:w-40 text-xs border border-amber-200 rounded px-2 py-1.5"
+                      />
                       <textarea
                         value={editNotes}
                         onChange={(e) => setEditNotes(e.target.value)}
@@ -986,6 +1021,7 @@ export default function DailyEntryForm() {
           </div>
         )}
       </div>
+    </div>
     </div>
   );
 }
