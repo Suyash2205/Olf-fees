@@ -1,6 +1,7 @@
 import { canonicalClassLabel } from "@/lib/fees/structure";
 import { normalizeSheetDate } from "./verify-write";
 import { getSheetsClient, FEES_SHEET_ID } from "./client";
+import { ensureRowCapacity } from "./grid-capacity";
 import { withSheetRetry } from "./retry";
 
 export const ATTENDANCE_AUDIT_SHEET = "Attendance Audit Log";
@@ -79,6 +80,7 @@ export async function appendAttendanceAuditLog(row: AttendanceAuditRow): Promise
     range: `${ATTENDANCE_AUDIT_SHEET}!A:A`,
   });
   const nextRow = (existing.data.values?.length ?? 1) + 1;
+  await ensureRowCapacity(ATTENDANCE_AUDIT_SHEET, nextRow);
 
   await sheets.spreadsheets.values.update({
     spreadsheetId: FEES_SHEET_ID,

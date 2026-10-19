@@ -1,6 +1,7 @@
 import { normalizePaymentMode, paymentModeLabel, type PaymentMode } from "@/lib/payment-mode";
 import { parseReceiptCell, receiptCellValue } from "@/lib/fees/receipt";
 import { getSheetsClient, FEES_SHEET_ID } from "./client";
+import { ensureRowCapacity } from "./grid-capacity";
 import { InputError } from "@/lib/input-error";
 import { columnLetter } from "./keyed-tab";
 import { withSheetRetry } from "./retry";
@@ -184,6 +185,7 @@ function dailyRowMatches(entry: DailyEntryInput, row: string[]): boolean {
 export async function appendDailyEntry(entry: DailyEntryInput): Promise<string> {
   await ensureSheet();
   const nextRow = await nextDailyDataRow();
+  await ensureRowCapacity(SHEET_NAME, nextRow);
   const sheets = getSheetsClient();
   const values = entryToRowValues(entry);
 

@@ -4,6 +4,7 @@ import {
 } from "@/lib/expense-categories";
 import { normalizePaymentMode, paymentModeLabel, type PaymentMode } from "@/lib/payment-mode";
 import { getSheetsClient, FEES_SHEET_ID } from "./client";
+import { ensureRowCapacity } from "./grid-capacity";
 import {
   amountsMatch,
   normalizeSheetDate,
@@ -296,6 +297,7 @@ export async function appendExpenseEntry(entry: ExpenseEntryInput): Promise<void
   await addExpenseCategory(entry.category);
 
   const nextRow = await nextExpenseDataRow();
+  await ensureRowCapacity(EXPENSE_SHEET, nextRow);
   const sheets = getSheetsClient();
   await sheets.spreadsheets.values.update({
     spreadsheetId: FEES_SHEET_ID,

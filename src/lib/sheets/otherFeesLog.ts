@@ -5,6 +5,7 @@ import {
 import { parseReceiptCell, receiptCellValue } from "@/lib/fees/receipt";
 import { normalizePaymentMode, paymentModeLabel, type PaymentMode } from "@/lib/payment-mode";
 import { getSheetsClient, FEES_SHEET_ID } from "./client";
+import { ensureRowCapacity } from "./grid-capacity";
 import { InputError } from "@/lib/input-error";
 import { columnLetter } from "./keyed-tab";
 import {
@@ -372,6 +373,7 @@ export async function appendOtherFeeEntry(entry: OtherFeeEntryInput): Promise<st
   await addOtherFeeType(entry.feeType);
 
   const nextRow = await nextOtherFeeDataRow();
+  await ensureRowCapacity(OTHER_FEES_SHEET, nextRow);
   const sheets = getSheetsClient();
   // A:H and the Receipt No cell only; I–K (school formulas) are not touched.
   await sheets.spreadsheets.values.batchUpdate({
