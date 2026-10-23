@@ -23,6 +23,7 @@ import {
   X,
   CalendarCheck,
   CalendarDays,
+  MessageCircle,
   ClipboardCheck,
 } from "lucide-react";
 import SchoolLogo from "@/components/SchoolLogo";
@@ -53,6 +54,7 @@ const EXPENSE_ITEMS: NavItem[] = [
 const ATTENDANCE_ITEMS: NavItem[] = [
   { href: "/attendance?from=fees", label: "Attendance", icon: CalendarCheck },
   { href: "/school-calendar", label: "School Calendar", icon: CalendarDays },
+  { href: "/whatsapp", label: "WhatsApp Parents", icon: MessageCircle },
 ];
 
 const ADMIN_ITEMS: NavItem[] = [

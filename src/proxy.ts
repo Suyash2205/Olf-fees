@@ -19,6 +19,7 @@ const FEES_PATH_PREFIXES = [
   "/admin",
   "/student-records",
   "/school-calendar",
+  "/whatsapp",
 ];
 
 function isFeesPath(pathname: string): boolean {
@@ -27,8 +28,8 @@ function isFeesPath(pathname: string): boolean {
   );
 }
 
-/** API routes that authenticate themselves (next-auth handshake, bearer-secret cron). */
-const API_SELF_AUTH_PREFIXES = ["/api/auth/", "/api/cron/"];
+/** API routes that authenticate themselves (next-auth handshake, bearer-secret cron, WhatsApp bot secret). */
+const API_SELF_AUTH_PREFIXES = ["/api/auth/", "/api/cron/", "/api/bot/"];
 
 /** API routes teachers may call; every other /api route is admin (fees) only. */
 const API_ATTENDANCE_PREFIXES = ["/api/attendance/", "/api/portal/access"];
@@ -104,6 +105,7 @@ export const config = {
     "/admin/:path*",
     "/student-records/:path*",
     "/school-calendar/:path*",
+    "/whatsapp/:path*",
     "/attendance/:path*",
     "/api/:path*",
   ],
