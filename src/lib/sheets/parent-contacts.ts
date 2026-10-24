@@ -29,6 +29,12 @@ export const PARENT_CONTACT_HEADERS = [
 
 export type ParentContactRow = TabRow<(typeof PARENT_CONTACT_HEADERS)[number]>;
 
+/** Every Indian mobile written in a free-text cell, normalised, in order. */
+export function extractIndianMobiles(raw: string): string[] {
+  const found = String(raw ?? "").match(/(?:\+?91[\s-]?|0)?[6-9]\d{4}[\s-]?\d{5}(?!\d)/g) ?? [];
+  return [...new Set(found.map((m) => normalizeIndianMobile(m)).filter((n): n is string => !!n))];
+}
+
 /** Indian mobile → 10 digits, or null. Accepts +91 / 0 prefixes, spaces, dashes. */
 export function normalizeIndianMobile(raw: string | null | undefined): string | null {
   let d = String(raw ?? "").replace(/\D/g, "");
@@ -68,16 +74,19 @@ export function resolveParentContacts(
     const ov = overrideBySr.get(srNo);
     const invalidRaw: string[] = [];
 
-    const check = (raw: string | undefined) => {
+    const check = (raw: string | undefined): (string | null)[] => {
       const v = String(raw ?? "").trim();
-      if (!v) return null;
+      if (!v) return [];
       const n = normalizeIndianMobile(v);
-      if (!n) invalidRaw.push(v);
-      return n;
+      if (n) return [n];
+      // One cell sometimes holds two numbers ("98xxxxxxxx / 70xxxxxxxx"); use each valid one.
+      const many = extractIndianMobiles(v);
+      if (!many.length) invalidRaw.push(v);
+      return many;
     };
 
-    const ovPhones = ov ? [check(ov["Primary Phone"]), check(ov["Alternate Phone"])] : [];
-    const admPhones = adm ? [check(adm.fatherContact), check(adm.motherContact)] : [];
+    const ovPhones = ov ? [...check(ov["Primary Phone"]), ...check(ov["Alternate Phone"])] : [];
+    const admPhones = adm ? [...check(adm.fatherContact), ...check(adm.motherContact)] : [];
     const portalValid = ovPhones.filter((p): p is string => !!p);
     const admValid = admPhones.filter((p): p is string => !!p);
 

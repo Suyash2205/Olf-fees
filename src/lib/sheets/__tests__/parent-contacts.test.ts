@@ -42,6 +42,11 @@ describe("resolveParentContacts", () => {
     const r = resolveParentContacts([{ srNo: "1", notes: "GR-2026-5" }], [adm("GR-2026-5", "12345", "")], []);
     expect(r.get("1")).toMatchObject({ phones: [], invalidRaw: ["12345"], source: "none" });
   });
+
+  it("uses each valid number when one cell holds two", () => {
+    const r = resolveParentContacts([{ srNo: "1", notes: "GR-2026-5" }], [adm("GR-2026-5", "7021767262 / 9284390759", "12345678 / 919820012345")], []);
+    expect(r.get("1")).toMatchObject({ phones: ["7021767262", "9284390759", "9820012345"], invalidRaw: [], source: "admissions" });
+  });
 });
 
 describe("keyed-tab", () => {
